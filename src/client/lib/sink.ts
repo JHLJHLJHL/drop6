@@ -79,7 +79,7 @@ export class BlobSink implements FileSink {
 }
 
 interface SaveFilePickerWindow {
-  showSaveFilePicker?: (options: { suggestedName: string }) => Promise<{
+  showSaveFilePicker?: (options: { suggestedName: string; startIn?: 'downloads' }) => Promise<{
     name: string;
     createWritable(): Promise<WritableLike>;
   }>;
@@ -106,6 +106,7 @@ export async function pickFileSystemSink(
   try {
     const handle = await (window as SaveFilePickerWindow).showSaveFilePicker!({
       suggestedName: sanitizeFileName(fileName),
+      startIn: 'downloads',
     });
     return { sink: new FileSystemSink(await handle.createWritable()), savedName: handle.name };
   } catch (error) {

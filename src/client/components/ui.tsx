@@ -43,7 +43,7 @@ export function TitleBlock({ title, sub, focusOnMount }: { title: ReactNode; sub
 }
 
 export function PrivacyNote() {
-  return <p className="note privacy-note">파일은 암호화되어 전송, 서버에 저장하지 않음.</p>;
+  return <p className="note privacy-note">파일은 암호화되어 전송, 서버에 저장하지 않음</p>;
 }
 
 export function ProgressBar({ percent, label }: { percent: number; label: string }) {

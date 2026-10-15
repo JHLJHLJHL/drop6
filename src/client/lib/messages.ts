@@ -56,7 +56,7 @@ export function describeReceiverFailure(reason: string | undefined, hasTurn: boo
     case 'connection-lost':
       return {
         title: '연결이 끊어졌어요',
-        body: '보내는 사람이 창을 닫았거나 네트워크가 불안정할 수 있어요. 다시 시도해주세요.',
+        body: '보내는 사람이 창을 닫았거나 네트워크가 불안정할 수 있어요.\n다시 시도해주세요.',
       };
     case 'connect-timeout':
     case 'ice-failed':
@@ -93,6 +93,18 @@ export function describeSenderPeer(peer: SenderPeerView, hasTurn: boolean): stri
       }
       if (peer.reason === 'connection-lost') return '연결이 끊어졌어요';
       return '전송 중에 문제가 생겼어요';
+  }
+}
+
+/** Why several files could not be bundled into one zip. */
+export function describeBundleError(reason: string): Message {
+  switch (reason) {
+    case 'too-many':
+      return { title: '파일이 너무 많아요', body: '한 번에 1000개까지 보낼 수 있어요.\n파일 수를 줄여서 다시 골라주세요.' };
+    case 'too-large':
+      return { title: '파일이 너무 커요', body: '여러 파일은 합쳐서 4GB까지 한 번에 보낼 수 있어요.\n파일을 나눠서 다시 골라주세요.' };
+    default:
+      return { title: '파일을 읽지 못했어요', body: '파일이 삭제됐거나 다른 곳에서 열려 있는지 확인하고\n다시 골라주세요.' };
   }
 }
 

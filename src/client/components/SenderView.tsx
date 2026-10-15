@@ -1,7 +1,7 @@
 import { Fish } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { formatBytes, formatCode, formatCountdown, formatSpeed } from '../lib/format';
-import { describeSenderClosed, describeSenderPeer } from '../lib/messages';
+import { describeBundleError, describeSenderClosed, describeSenderPeer } from '../lib/messages';
 import { isPeerActive, type SenderPeerView, type SenderState } from '../lib/senderSession';
 import { Button, FileCard, PrivacyNote, ProgressBar, TitleBlock, percentOf } from './ui';
 
@@ -69,8 +69,36 @@ function CopyButton({ code }: { code: string }) {
   );
 }
 
+/** Shown while several files are being bundled into one zip. */
+export function SenderPreparing({ done, total, onLeave }: { done: number; total: number; onLeave(): void }) {
+  return (
+    <section className="card stack">
+      <TitleBlock title="잠시만 기다려주세요" />
+      <p className="status" role="status">
+        <span className="spinner spinner-dark" aria-hidden="true" />
+        {`파일을 하나로 묶고 있어요 (${done} / ${total})`}
+      </p>
+      <Button variant="text" onClick={onLeave}>
+        그만두기
+      </Button>
+    </section>
+  );
+}
+
+/** Bundling failed (too many / too large / unreadable). */
+export function SenderBundleError({ reason, onLeave }: { reason: string; onLeave(): void }) {
+  const message = describeBundleError(reason);
+  return (
+    <section className="card stack">
+      <TitleBlock title={message.title} sub={message.body} />
+      <Button onClick={onLeave}>파일 다시 고르기</Button>
+    </section>
+  );
+}
+
 export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
-  const fileCard = <FileCard name={state.file.name} detail={formatBytes(state.file.size)} />;
+  const size = formatBytes(state.file.size);
+  const fileCard = <FileCard name={state.file.name} detail={state.fileCount > 1 ? `파일 ${state.fileCount}개 · ${size}` : size} />;
   const peerList = state.peers.length > 0 && (
     <div>
       <p className="section-label">받는 사람</p>
@@ -143,7 +171,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
           }
         />
       ) : (
-        <TitleBlock title="코드를 알려주세요" sub="받는 사람이 이 코드를 입력하면 연결돼요." />
+        <TitleBlock title="코드를 알려주세요" sub="받는 사람이 이 코드를 입력하면 연결돼요" />
       )}
 
       {!expired && (

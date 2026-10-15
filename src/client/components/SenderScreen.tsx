@@ -1,11 +1,13 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { prepareSource, type PreparedSource } from '../lib/bundle';
 import { setLeaveGuard } from '../lib/leaveGuard';
 import { SenderSession, isPeerActive } from '../lib/senderSession';
-import { SenderView } from './SenderView';
+import { ZipLimitError } from '../lib/zip';
+import { SenderBundleError, SenderPreparing, SenderView } from './SenderView';
 import { useNow } from './useNow';
 
 interface SenderScreenProps {
-  file: File;
+  files: File[];
   onExit(): void;
 }
 
@@ -29,18 +31,47 @@ function Connected({ session, onExit, onRenew }: { session: SenderSession; onExi
   return <SenderView state={state} now={now} onLeave={onExit} onRenew={onRenew} />;
 }
 
-/** Owns one SenderSession per attempt: a fresh code means a fresh session. */
-export function SenderScreen({ file, onExit }: SenderScreenProps) {
+/**
+ * Owns one SenderSession per attempt: a fresh code means a fresh session.
+ * Several files are bundled into one zip first; that work is kept across attempts.
+ */
+export function SenderScreen({ files, onExit }: SenderScreenProps) {
   const [attempt, setAttempt] = useState(0);
   const [session, setSession] = useState<SenderSession | null>(null);
+  const [progress, setProgress] = useState({ done: 0, total: files.length });
+  const [failure, setFailure] = useState<string | null>(null);
+  const prepared = useRef<{ files: File[]; result: Promise<PreparedSource> } | undefined>(undefined);
 
   useEffect(() => {
-    const created = new SenderSession(file);
-    setSession(created);
-    void created.start();
-    return () => created.dispose();
-  }, [file, attempt]);
+    let cancelled = false;
+    let created: SenderSession | undefined;
+    setSession(null);
+    setFailure(null);
 
-  if (!session) return null;
+    if (prepared.current?.files !== files) {
+      setProgress({ done: 0, total: files.length });
+      prepared.current = { files, result: prepareSource(files, (done, total) => setProgress({ done, total })) };
+    }
+    prepared.current.result.then(
+      ({ source, fileCount }) => {
+        if (cancelled) return;
+        created = new SenderSession(source, fileCount);
+        setSession(created);
+        void created.start();
+      },
+      (error: unknown) => {
+        if (!cancelled) setFailure(error instanceof ZipLimitError ? error.reason : 'read-failed');
+      },
+    );
+    return () => {
+      cancelled = true;
+      created?.dispose();
+    };
+  }, [files, attempt]);
+
+  if (failure) return <SenderBundleError reason={failure} onLeave={onExit} />;
+  if (!session) {
+    return files.length > 1 ? <SenderPreparing done={progress.done} total={progress.total} onLeave={onExit} /> : null;
+  }
   return <Connected key={attempt} session={session} onExit={onExit} onRenew={() => setAttempt((n) => n + 1)} />;
 }

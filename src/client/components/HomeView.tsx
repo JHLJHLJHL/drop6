@@ -2,47 +2,44 @@ import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { Button, PrivacyNote, TitleBlock } from './ui';
 
 interface HomeViewProps {
-  onFile(file: File): void;
-  onOpenReceive(): void;
+  /** One or more files. Several files are bundled into a single zip before sending. */
+  onFiles(files: File[]): void;
 }
 
 function containsFolder(items: DataTransferItemList | undefined): boolean {
   return Array.from(items ?? []).some((item) => item.webkitGetAsEntry?.()?.isDirectory === true);
 }
 
-export function HomeView({ onFile, onOpenReceive }: HomeViewProps) {
+export function HomeView({ onFiles }: HomeViewProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string>();
 
-  const choose = (file: File | undefined) => {
-    if (!file) return;
+  const choose = (files: File[]) => {
+    if (files.length === 0) return;
     setError(undefined);
-    onFile(file);
+    onFiles(files);
   };
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    choose(file);
+    choose(files);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragging(false);
-    const files = Array.from(event.dataTransfer.files);
     if (containsFolder(event.dataTransfer.items)) {
-      setError('폴더는 보낼 수 없어요. 파일을 하나 골라주세요.');
-    } else if (files.length > 1) {
-      setError('파일은 한 번에 하나씩 보낼 수 있어요.');
+      setError('폴더는 보낼 수 없어요. 파일을 골라주세요.');
     } else {
-      choose(files[0]);
+      choose(Array.from(event.dataTransfer.files));
     }
   };
 
   return (
     <section className="card stack">
-      <TitleBlock title="어떤 파일을 보낼까요?" sub="파일을 고르면 6자리 코드를 만들어드려요." focusOnMount={false} />
+      <TitleBlock title="어떤 파일을 보낼까요?" sub="파일을 고르면 6자리 코드를 만들어드려요" focusOnMount={false} />
 
       <div
         className={`dropzone${dragging ? ' is-dragging' : ''}`}
@@ -53,6 +50,7 @@ export function HomeView({ onFile, onOpenReceive }: HomeViewProps) {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
       >
         <p>여기에 파일을 끌어다 놓아도 돼요</p>
       </div>
@@ -63,19 +61,16 @@ export function HomeView({ onFile, onOpenReceive }: HomeViewProps) {
         </p>
       )}
 
-      <input ref={inputRef} type="file" className="sr-only" tabIndex={-1} aria-label="보낼 파일 선택" onChange={handleChange} />
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="보낼 파일 선택"
+        onChange={handleChange}
+      />
       <Button onClick={() => inputRef.current?.click()}>파일 고르기</Button>
-
-      <a
-        className="text-link"
-        href="/receive"
-        onClick={(event) => {
-          event.preventDefault();
-          onOpenReceive();
-        }}
-      >
-        파일을 받으러 오셨나요? 코드 입력하기
-      </a>
       <PrivacyNote />
     </section>
   );

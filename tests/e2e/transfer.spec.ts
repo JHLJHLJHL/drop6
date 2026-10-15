@@ -65,7 +65,7 @@ test('streams to disk through the File System Access API', async ({ browser, pag
   const context = await newReceiverContext(browser, 'opfs');
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);
-  await expect(receiver.getByText('받기를 누르면 파일을 저장할 위치를 물어봐요.')).toBeVisible();
+  await expect(receiver.getByText('파일 받기를 누르면 브라우저 기본 다운로드 폴더로')).toBeVisible();
   await receiver.getByRole('button', { name: '파일 받기' }).click();
   await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
   await expect(receiver.getByText('선택한 위치에 저장했어요.')).toBeVisible();

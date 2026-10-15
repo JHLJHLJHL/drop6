@@ -6,7 +6,7 @@ test.beforeEach(async ({ request }) => {
   await resetServer(request);
 });
 
-const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음.';
+const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음';
 
 const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
 
@@ -48,12 +48,12 @@ test('pressing the email copies it and shows 복사되었습니다', async ({ pa
 test('headings are centered, the countdown is right-aligned and file names are 2px smaller', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.heading-center').first()).toHaveCSS('text-align', 'center');
-  await expect(page.getByText('파일을 고르면 6자리 코드를 만들어드려요.')).toBeVisible();
+  await expect(page.getByText('파일을 고르면 6자리 코드를 만들어드려요')).toBeVisible();
 
   await startSending(page, makeTestFile(2048, 'a-long-name-to-check-wrapping.bin'));
   await expect(page.getByRole('heading', { name: '코드를 알려주세요' })).toBeVisible();
   await expect(page.locator('.heading-center')).toHaveCSS('text-align', 'center');
-  await expect(page.getByText('받는 사람이 이 코드를 입력하면 연결돼요.')).toBeVisible();
+  await expect(page.getByText('받는 사람이 이 코드를 입력하면 연결돼요')).toBeVisible();
 
   const timer = page.getByRole('timer');
   await expect(timer).toHaveText(/^\d\d:\d\d$/);

@@ -13,18 +13,18 @@ const CONTACT_EMAIL = 'honeymath.gbe@gmail.com';
 
 export function App() {
   const route = useRoute();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[] | null>(null);
   const [code, setCode] = useState<string | null>(null);
 
   // Leaving a screen ends its session, so forget what it was working on.
   useEffect(() => {
-    if (route !== 'home') setFile(null);
+    if (route !== 'home') setFiles(null);
     if (route !== 'receive') setCode(null);
   }, [route]);
 
   const goHome = () => {
     if (!confirmLeave()) return;
-    setFile(null);
+    setFiles(null);
     navigate('/');
   };
 
@@ -37,14 +37,10 @@ export function App() {
     screen = code ? (
       <ReceiverScreen code={code} onRetry={() => setCode(null)} />
     ) : (
-      <CodeEntryView onSubmit={setCode} onOpenHome={goHome} />
+      <CodeEntryView onSubmit={setCode} />
     );
   } else {
-    screen = file ? (
-      <SenderScreen file={file} onExit={goHome} />
-    ) : (
-      <HomeView onFile={setFile} onOpenReceive={() => navigate('/receive')} />
-    );
+    screen = files ? <SenderScreen files={files} onExit={goHome} /> : <HomeView onFiles={setFiles} />;
   }
 
   return (

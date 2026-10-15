@@ -44,7 +44,7 @@ export function ReceiverView({ state, onAccept, onCancel, onRetry }: ReceiverVie
           <TitleBlock title="이 파일을 받을까요?" sub="보내는 사람이 보낸 파일 정보예요." />
           {meta && <FileCard name={meta.name} detail={detail} />}
           <p className="note">
-            {state.mode === 'memory' ? MEMORY_DOWNLOAD_NOTICE : '받기를 누르면 파일을 저장할 위치를 물어봐요.'}
+            {state.mode === 'memory' ? MEMORY_DOWNLOAD_NOTICE : '파일 받기를 누르면 브라우저 기본 다운로드 폴더로'}
           </p>
           <Button onClick={onAccept}>파일 받기</Button>
           <Button variant="text" onClick={onCancel}>

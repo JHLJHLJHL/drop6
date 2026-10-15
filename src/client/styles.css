@@ -83,7 +83,7 @@ p {
   gap: 0 4px;
   margin-left: auto;
   color: var(--grey-700);
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem - 1px);
   text-align: right;
 }
 
@@ -91,25 +91,21 @@ p {
   font-weight: 600;
 }
 
+/* Plain text link look: no box, only an underline on hover. */
 .email-button {
   min-height: 44px;
-  padding: 0 8px;
+  padding: 0 4px;
   border: 0;
-  border-radius: 12px;
   background: transparent;
   color: var(--primary-strong);
   font: inherit;
   font-weight: 600;
+  text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.15s ease;
 }
 
 .email-button:hover {
-  background: var(--primary-weak);
-}
-
-.email-button:active {
-  transform: scale(0.98);
+  text-decoration: underline;
 }
 
 .toggle {
@@ -248,6 +244,7 @@ p {
 }
 
 .sub {
+  white-space: pre-line;
   margin-top: 8px;
   color: var(--grey-700);
   font-size: 1rem;
@@ -414,6 +411,7 @@ p {
 /* ---------- home ---------- */
 
 .dropzone {
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -427,6 +425,10 @@ p {
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease;
+}
+
+.dropzone:hover {
+  border-color: var(--primary);
 }
 
 .dropzone.is-dragging {
@@ -614,7 +616,7 @@ p {
 
 @media (max-width: 400px) {
   .owner {
-    font-size: 0.75rem;
+    font-size: calc(0.75rem - 1px);
   }
 
   .card {

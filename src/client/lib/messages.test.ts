@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  describeBundleError,
   describeJoinError,
   describeReceiverFailure,
   describeSenderClosed,
@@ -47,6 +48,12 @@ describe('describeReceiverFailure', () => {
     expect(describeReceiverFailure('sender-left', true).title).toBe('보내는 사람이 창을 닫았어요');
   });
 
+  it('puts the retry hint of a lost connection on its own line', () => {
+    expect(describeReceiverFailure('connection-lost', true).body).toBe(
+      '보내는 사람이 창을 닫았거나 네트워크가 불안정할 수 있어요.\n다시 시도해주세요.',
+    );
+  });
+
   it('mentions the missing TURN relay only when none is configured', () => {
     expect(describeReceiverFailure('connect-timeout', false).body).toContain(TURN_MISSING_HINT);
     expect(describeReceiverFailure('ice-failed', true).body).not.toContain('TURN');
@@ -76,6 +83,16 @@ describe('describeSenderPeer', () => {
     const failed = peer({ phase: 'failed', reason: 'connect-timeout' });
     expect(describeSenderPeer(failed, false)).toContain('TURN');
     expect(describeSenderPeer(failed, true)).not.toContain('TURN');
+  });
+});
+
+describe('describeBundleError', () => {
+  it('explains the limits of bundling several files into one zip', () => {
+    expect(describeBundleError('too-many').title).toBe('파일이 너무 많아요');
+    expect(describeBundleError('too-many').body).toContain('1000개');
+    expect(describeBundleError('too-large').title).toBe('파일이 너무 커요');
+    expect(describeBundleError('too-large').body).toContain('4GB');
+    expect(describeBundleError('read-failed').title).toBe('파일을 읽지 못했어요');
   });
 });
 

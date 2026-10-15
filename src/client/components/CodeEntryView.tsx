@@ -6,13 +6,12 @@ import { Alert, Button, TitleBlock } from './ui';
 
 interface CodeEntryViewProps {
   onSubmit(code: string): void;
-  onOpenHome(): void;
   error?: Message | undefined;
   busy?: boolean;
   initialCode?: string;
 }
 
-export function CodeEntryView({ onSubmit, onOpenHome, error, busy = false, initialCode = '' }: CodeEntryViewProps) {
+export function CodeEntryView({ onSubmit, error, busy = false, initialCode = '' }: CodeEntryViewProps) {
   const [digits, setDigits] = useState(initialCode.replace(/\D/g, '').slice(0, 6));
   const valid = CODE_PATTERN.test(digits);
 
@@ -23,7 +22,7 @@ export function CodeEntryView({ onSubmit, onOpenHome, error, busy = false, initi
 
   return (
     <section className="card stack">
-      <TitleBlock title="전송 코드를 입력해주세요" sub="보내는 사람이 알려준 6자리 코드예요." focusOnMount={false} />
+      <TitleBlock title="전송 코드를 입력해주세요" sub="보내는 사람이 알려준 6자리 코드예요" focusOnMount={false} />
 
       <form className="stack" onSubmit={handleSubmit}>
         <label className="sr-only" htmlFor="transfer-code-input">
@@ -46,16 +45,6 @@ export function CodeEntryView({ onSubmit, onOpenHome, error, busy = false, initi
         </Button>
       </form>
 
-      <a
-        className="text-link"
-        href="/"
-        onClick={(event) => {
-          event.preventDefault();
-          onOpenHome();
-        }}
-      >
-        파일을 보내러 오셨나요?
-      </a>
     </section>
   );
 }

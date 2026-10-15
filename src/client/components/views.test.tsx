@@ -7,61 +7,75 @@ import type { SenderPeerView, SenderState } from '../lib/senderSession';
 import { CodeEntryView } from './CodeEntryView';
 import { HomeView } from './HomeView';
 import { ReceiverView } from './ReceiverView';
-import { SenderView } from './SenderView';
+import { SenderBundleError, SenderPreparing, SenderView } from './SenderView';
 
 afterEach(cleanup);
 
 const MIN = 60_000;
 
 describe('HomeView', () => {
-  it('asks which file to send and offers to receive instead', () => {
-    render(<HomeView onFile={() => {}} onOpenReceive={() => {}} />);
+  it('asks which file to send', () => {
+    render(<HomeView onFiles={() => {}} />);
     expect(screen.getByRole('heading', { name: '어떤 파일을 보낼까요?' })).toBeInTheDocument();
-    expect(screen.getByText('파일을 고르면 6자리 코드를 만들어드려요.')).toBeInTheDocument();
+    expect(screen.getByText('파일을 고르면 6자리 코드를 만들어드려요')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '어떤 파일을 보낼까요?' }).closest('.heading-center')).not.toBeNull();
-    expect(screen.getByRole('link', { name: /코드 입력하기/ })).toHaveAttribute('href', '/receive');
+    // switching sides is the toggle's job, so the card carries no extra links
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('passes the chosen file up', async () => {
-    const onFile = vi.fn();
-    render(<HomeView onFile={onFile} onOpenReceive={() => {}} />);
+    const onFiles = vi.fn();
+    render(<HomeView onFiles={onFiles} />);
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
     await userEvent.upload(screen.getByLabelText('보낼 파일 선택'), file);
-    expect(onFile).toHaveBeenCalledWith(file);
+    expect(onFiles).toHaveBeenCalledWith([file]);
+  });
+
+  it('lets the picker select several files and passes them all up', async () => {
+    const onFiles = vi.fn();
+    render(<HomeView onFiles={onFiles} />);
+    const input = screen.getByLabelText('보낼 파일 선택');
+    expect(input).toHaveAttribute('multiple');
+    const files = [new File(['1'], '1.txt'), new File(['2'], '2.txt'), new File(['3'], '3.txt')];
+    await userEvent.upload(input, files);
+    expect(onFiles).toHaveBeenCalledWith(files);
   });
 
   it('takes a single dropped file', () => {
-    const onFile = vi.fn();
-    render(<HomeView onFile={onFile} onOpenReceive={() => {}} />);
+    const onFiles = vi.fn();
+    render(<HomeView onFiles={onFiles} />);
     const file = new File(['x'], 'x.txt');
     fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [file], items: [] } });
-    expect(onFile).toHaveBeenCalledWith(file);
+    expect(onFiles).toHaveBeenCalledWith([file]);
   });
 
-  it('refuses several dropped files and explains why', () => {
-    const onFile = vi.fn();
-    render(<HomeView onFile={onFile} onOpenReceive={() => {}} />);
+  it('takes several dropped files at once', () => {
+    const onFiles = vi.fn();
+    render(<HomeView onFiles={onFiles} />);
     const files = [new File(['1'], '1.txt'), new File(['2'], '2.txt')];
     fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files, items: [] } });
-    expect(onFile).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('하나씩');
+    expect(onFiles).toHaveBeenCalledWith(files);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('refuses a dropped folder', () => {
-    const onFile = vi.fn();
-    render(<HomeView onFile={onFile} onOpenReceive={() => {}} />);
+  it('refuses a dropped folder, even among other files', () => {
+    const onFiles = vi.fn();
+    render(<HomeView onFiles={onFiles} />);
     const folder = { webkitGetAsEntry: () => ({ isDirectory: true }) };
-    fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [new File([], 'dir')], items: [folder] } });
-    expect(onFile).not.toHaveBeenCalled();
+    const plain = { webkitGetAsEntry: () => ({ isDirectory: false }) };
+    fireEvent.drop(screen.getByTestId('dropzone'), {
+      dataTransfer: { files: [new File([], 'dir'), new File(['x'], 'x.txt')], items: [folder, plain] },
+    });
+    expect(onFiles).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('폴더');
   });
 });
 
 describe('CodeEntryView', () => {
   it('shows the prompt and keeps the connect button disabled until 6 digits', async () => {
-    render(<CodeEntryView onSubmit={() => {}} onOpenHome={() => {}} />);
+    render(<CodeEntryView onSubmit={() => {}} />);
     expect(screen.getByRole('heading', { name: '전송 코드를 입력해주세요' })).toBeInTheDocument();
-    expect(screen.getByText('보내는 사람이 알려준 6자리 코드예요.')).toBeInTheDocument();
+    expect(screen.getByText('보내는 사람이 알려준 6자리 코드예요')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: '연결하기' });
     expect(button).toBeDisabled();
     await userEvent.type(screen.getByLabelText('전송 코드'), '12345');
@@ -72,7 +86,7 @@ describe('CodeEntryView', () => {
 
   it('accepts digits only, groups them and submits the raw code with Enter', async () => {
     const onSubmit = vi.fn();
-    render(<CodeEntryView onSubmit={onSubmit} onOpenHome={() => {}} />);
+    render(<CodeEntryView onSubmit={onSubmit} />);
     const input = screen.getByLabelText('전송 코드');
     await userEvent.type(input, 'a1b2c3d4e5f6g7{Enter}');
     expect(input).toHaveValue('123 456');
@@ -81,7 +95,7 @@ describe('CodeEntryView', () => {
 
   it('takes a pasted code with spaces', async () => {
     const onSubmit = vi.fn();
-    render(<CodeEntryView onSubmit={onSubmit} onOpenHome={() => {}} />);
+    render(<CodeEntryView onSubmit={onSubmit} />);
     await userEvent.click(screen.getByLabelText('전송 코드'));
     await userEvent.paste(' 987 654 ');
     await userEvent.click(screen.getByRole('button', { name: '연결하기' }));
@@ -89,12 +103,12 @@ describe('CodeEntryView', () => {
   });
 
   it('announces errors', () => {
-    render(<CodeEntryView onSubmit={() => {}} onOpenHome={() => {}} error={{ title: '없는 코드예요', body: '숫자를 다시 확인해주세요.' }} />);
+    render(<CodeEntryView onSubmit={() => {}} error={{ title: '없는 코드예요', body: '숫자를 다시 확인해주세요.' }} />);
     expect(screen.getByRole('alert')).toHaveTextContent('없는 코드예요');
   });
 
   it('shows a loading state while connecting', () => {
-    render(<CodeEntryView onSubmit={() => {}} onOpenHome={() => {}} initialCode="123456" busy />);
+    render(<CodeEntryView onSubmit={() => {}} initialCode="123456" busy />);
     expect(screen.getByRole('button', { name: /연결하는 중/ })).toBeDisabled();
   });
 });
@@ -103,6 +117,7 @@ function senderState(patch: Partial<SenderState> = {}): SenderState {
   return {
     phase: 'open',
     file: { name: 'report.pdf', size: 5 * 1024 * 1024 },
+    fileCount: 1,
     code: '123456',
     expiresAt: 1_000_000 + 30 * MIN,
     clockOffset: 0,
@@ -292,13 +307,17 @@ describe('removed copy', () => {
     '보내는 사람이 창을 닫으면 전송도 멈춰요.',
     '30분이 지나도 진행 중인 전송은 계속돼요.',
     '파일은 암호화되어 전송되며 서버에 저장하지 않아요.',
+    '파일은 암호화되어 전송, 서버에 저장하지 않음.',
+    '받기를 누르면 파일을 저장할 위치를 물어봐요.',
+    '파일을 받으러 오셨나요? 코드 입력하기',
+    '파일을 보내러 오셨나요?',
   ];
   const noop = () => {};
   const meta = { name: 'photo.png', size: 3 * 1024 * 1024, mime: 'image/png' };
 
   it.each([
-    ['home', () => <HomeView onFile={noop} onOpenReceive={noop} />],
-    ['code entry', () => <CodeEntryView onSubmit={noop} onOpenHome={noop} />],
+    ['home', () => <HomeView onFiles={noop} />],
+    ['code entry', () => <CodeEntryView onSubmit={noop} />],
     ['sender, waiting for people', () => <SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />],
     [
       'sender, with receivers',
@@ -316,14 +335,14 @@ describe('removed copy', () => {
   });
 });
 
-const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음.';
+const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음';
 
 describe('privacy note', () => {
   const noop = () => {};
   const meta = { name: 'photo.png', size: 3 * 1024 * 1024, mime: 'image/png' };
 
   it.each([
-    ['home', () => <HomeView onFile={noop} onOpenReceive={noop} />],
+    ['home', () => <HomeView onFiles={noop} />],
     ['sender, waiting for people', () => <SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />],
     ['receiver, review', () => <ReceiverView state={receiverState({ meta })} onAccept={noop} onCancel={noop} onRetry={noop} />],
   ])('%s shows the short wording, centered', (_name, view) => {
@@ -344,8 +363,8 @@ describe('centered titles', () => {
   );
 
   it.each([
-    ['home', <HomeView key="h" onFile={noop} onOpenReceive={noop} />],
-    ['code entry', <CodeEntryView key="c" onSubmit={noop} onOpenHome={noop} />],
+    ['home', <HomeView key="h" onFiles={noop} />],
+    ['code entry', <CodeEntryView key="c" onSubmit={noop} />],
     ['sender starting', sender({ phase: 'starting', code: undefined })],
     ['sender error', sender({ phase: 'error' })],
     ['sender closed', sender({ phase: 'closed', reason: 'CONNECTION_LOST' })],
@@ -391,5 +410,75 @@ describe('receiver names', () => {
       expect(name.firstElementChild).toBe(icon);
     }
     expect(screen.getByRole('progressbar', { name: '파라리크티스 올리바케우스 진행률' })).toBeInTheDocument();
+  });
+});
+
+describe('drop zone', () => {
+  it('opens the file explorer when the field itself is clicked', async () => {
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    render(<HomeView onFiles={() => {}} />);
+    await userEvent.click(screen.getByTestId('dropzone'));
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('보낼 파일 선택')).toHaveAttribute('type', 'file');
+    click.mockRestore();
+  });
+
+  it('still has one keyboard-reachable button for the same action', () => {
+    render(<HomeView onFiles={() => {}} />);
+    expect(screen.getByRole('button', { name: '파일 고르기' })).toBeInTheDocument();
+    expect(screen.getByTestId('dropzone')).not.toHaveAttribute('tabindex');
+  });
+});
+
+describe('receive screens, copy changes', () => {
+  const noop = () => {};
+  const meta = { name: 'photo.png', size: 1024, mime: 'image/png' };
+
+  it('tells the download folder instead of asking for a save location (disk streaming)', () => {
+    render(<ReceiverView state={receiverState({ phase: 'review', meta })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+    expect(screen.getByText('파일 받기를 누르면 브라우저 기본 다운로드 폴더로')).toBeInTheDocument();
+    expect(screen.queryByText(/저장할 위치/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the memory download notice in browsers without disk streaming', () => {
+    render(<ReceiverView state={receiverState({ phase: 'review', meta, mode: 'memory' })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+    expect(screen.getByText(/메모리에 담았다가 다운로드해요/)).toBeInTheDocument();
+    expect(screen.queryByText('파일 받기를 누르면 브라우저 기본 다운로드 폴더로')).not.toBeInTheDocument();
+  });
+
+  it('breaks the lost-connection message into two lines', () => {
+    render(<ReceiverView state={receiverState({ phase: 'failed', reason: 'connection-lost' })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+    const sub = document.querySelector('.sub')!;
+    expect(sub.textContent).toBe('보내는 사람이 창을 닫았거나 네트워크가 불안정할 수 있어요.\n다시 시도해주세요.');
+  });
+});
+
+describe('several files', () => {
+  const noop = () => {};
+
+  it('shows the zip and how many files are inside on the sender card', () => {
+    const state = senderState({ file: { name: 'DROP6 파일 3개.zip', size: 12 * 1024 * 1024 }, fileCount: 3 });
+    render(<SenderView state={state} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.getByText('DROP6 파일 3개.zip')).toBeInTheDocument();
+    expect(screen.getByText('파일 3개 · 12 MB')).toBeInTheDocument();
+  });
+
+  it('keeps the plain size for a single file', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.getByText('5 MB')).toBeInTheDocument();
+  });
+
+  it('shows how far the bundling is while zipping', () => {
+    render(<SenderPreparing done={2} total={5} onLeave={noop} />);
+    expect(screen.getByRole('status')).toHaveTextContent('파일을 하나로 묶고 있어요 (2 / 5)');
+    expect(screen.getByRole('heading', { level: 1 }).closest('.heading-center')).not.toBeNull();
+  });
+
+  it('explains why bundling failed and goes back', async () => {
+    const onLeave = vi.fn();
+    render(<SenderBundleError reason="too-many" onLeave={onLeave} />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('파일이 너무 많아요');
+    await userEvent.click(screen.getByRole('button', { name: '파일 다시 고르기' }));
+    expect(onLeave).toHaveBeenCalled();
   });
 });

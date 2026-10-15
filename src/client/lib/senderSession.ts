@@ -1,5 +1,6 @@
 import { hasTurnServer, type IceServerConfig } from '../../shared/ice';
 import { MAX_RECEIVERS, type ProgressState, type ServerMessage, type SignalData } from '../../shared/protocol';
+import type { FileSource } from './channel';
 import { FileSender, type SendSnapshot } from './fileSender';
 import { fetchIceServers } from './iceConfig';
 import { CONNECT_TIMEOUT_MS, CandidateQueue, candidateSignal, createPeerConnection } from './rtc';
@@ -24,7 +25,10 @@ export type SenderPhase = 'starting' | 'open' | 'closed' | 'error';
 
 export interface SenderState {
   phase: SenderPhase;
+  /** What is actually sent: the file itself, or the zip bundling several files. */
   file: { name: string; size: number };
+  /** How many files the user picked (more than 1 means `file` is a zip). */
+  fileCount: number;
   code?: string | undefined;
   expiresAt?: number | undefined;
   /** serverTime - Date.now() at room creation, so the countdown follows the server clock. */
@@ -45,7 +49,7 @@ export function isPeerActive(peer: SenderPeerView): boolean {
 
 interface LinkDeps {
   iceServers: IceServerConfig[];
-  file: File;
+  file: FileSource;
   sendSignal(to: string, data: SignalData): void;
   onChange(view: SenderPeerView): void;
 }
@@ -165,10 +169,14 @@ export class SenderSession extends Store<SenderState> {
   private readonly nextName = createNamePicker();
   private disposed = false;
 
-  constructor(private readonly file: File) {
+  constructor(
+    private readonly file: FileSource,
+    fileCount = 1,
+  ) {
     super({
       phase: 'starting',
       file: { name: file.name, size: file.size },
+      fileCount,
       clockOffset: 0,
       maxReceivers: MAX_RECEIVERS,
       connectedCount: 0,
