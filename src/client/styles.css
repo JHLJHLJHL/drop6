@@ -87,7 +87,7 @@ p {
   margin: 0 auto;
   padding: 4px 12px 24px; /* sits right under the card, whatever its height */
   color: var(--grey-700);
-  font-size: calc(0.8125rem - 1px);
+  font-size: 0.8125rem; /* 13px */
 }
 
 .owner-name {
@@ -636,7 +636,7 @@ p {
 
 @media (max-width: 400px) {
   .app-footer {
-    font-size: calc(0.75rem - 1px);
+    font-size: 0.75rem; /* 12px */
   }
 
   .card {

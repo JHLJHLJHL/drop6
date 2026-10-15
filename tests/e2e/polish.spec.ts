@@ -17,11 +17,11 @@ test('the email is plain text that only gets an underline on hover (no box)', as
   await expect(email).toHaveCSS('box-shadow', 'none');
 });
 
-test('the signature font is 1px smaller than before', async ({ page }) => {
+test('the footer font is 1px bigger than before', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.app-footer')).toHaveCSS('font-size', '12px'); // was 13px
+  await expect(page.locator('.app-footer')).toHaveCSS('font-size', '13px'); // was 12px
   await page.setViewportSize({ width: 360, height: 740 });
-  await expect(page.locator('.app-footer')).toHaveCSS('font-size', '11px'); // was 12px
+  await expect(page.locator('.app-footer')).toHaveCSS('font-size', '12px'); // was 11px
 });
 
 test('the cards no longer carry extra links; the toggle switches sides', async ({ page }) => {
