@@ -1,11 +1,11 @@
 import { hasTurnServer, type IceServerConfig } from '../../shared/ice';
 import type { ProgressState, ServerMessage, SignalData } from '../../shared/protocol';
-import type { FileMeta } from '../../shared/transfer';
+import type { Delivery, FileMeta } from '../../shared/transfer';
 import { FileReceiver, type ReceiveSnapshot } from './fileReceiver';
 import { fetchIceServers } from './iceConfig';
 import { CONNECT_TIMEOUT_MS, CandidateQueue, candidateSignal, createPeerConnection } from './rtc';
 import { connectSignaling, type SignalingClient } from './signalingClient';
-import { BlobSink, hasFileSystemAccess, pickFileSystemSink } from './sink';
+import { BlobSink, hasFileSystemAccess, memorySplitSink, pickDirectorySink, pickFileSystemSink } from './sink';
 import { SpeedMeter } from './speedMeter';
 import { Store } from './store';
 
@@ -27,7 +27,9 @@ export interface ReceiverState {
   speed: number;
   /** file-system: streams to disk. memory: Blob download, limited to 500MB. */
   mode: 'file-system' | 'memory';
-  /** Name the user picked in the save dialog (file-system mode). */
+  /** What the user chose for a multi-file transfer: the zip, or every file on its own. */
+  delivery: Delivery;
+  /** Name the user picked in the save dialog, or of the folder the files go into (file-system mode). */
   savedName?: string | undefined;
   /** An ErrorCode for phase 'error'; a client/transfer reason label for 'failed'. */
   reason?: string | undefined;
@@ -54,6 +56,7 @@ export class ReceiverSession extends Store<ReceiverState> {
       phase: 'joining',
       savedBytes: 0,
       speed: 0,
+      delivery: 'zip',
       mode: hasFileSystemAccess() ? 'file-system' : 'memory',
       hasTurn: false,
     });
@@ -81,19 +84,22 @@ export class ReceiverSession extends Store<ReceiverState> {
    * The user confirmed. Must be called straight from the click handler: the
    * save dialog needs user activation, so nothing may be awaited before it.
    */
-  async accept(): Promise<void> {
+  async accept(delivery: Delivery = 'zip'): Promise<void> {
     const { meta, phase } = this.getState();
     if (!meta || phase !== 'review' || !this.receiver) return;
+    const files = delivery === 'files' ? meta.files : undefined;
+    if (delivery === 'files' && !files) return;
 
     if (!hasFileSystemAccess()) {
-      this.receiver.accept(new BlobSink(meta));
+      this.update({ delivery });
+      this.receiver.accept(files ? memorySplitSink(files) : new BlobSink(meta), delivery);
       return;
     }
     try {
-      const picked = await pickFileSystemSink(meta.name);
+      const picked = files ? await pickDirectorySink(files) : await pickFileSystemSink(meta.name);
       if (!picked) return; // dialog dismissed: stay on the review screen
-      this.update({ savedName: picked.savedName });
-      this.receiver.accept(picked.sink);
+      this.update({ savedName: picked.savedName, delivery });
+      this.receiver.accept(picked.sink, delivery);
     } catch {
       this.receiver.abort('storage');
     }

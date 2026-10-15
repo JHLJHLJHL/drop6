@@ -6,7 +6,7 @@ import {
   receiverMessageSchema,
   type SenderMessage,
 } from '../../shared/transfer';
-import { trySend, type ChannelLike, type FileSource } from './channel';
+import { trySend, type ChannelLike, type FileSource, type SeparateSource } from './channel';
 
 export type SendPhase = 'waiting' | 'sending' | 'done' | 'rejected' | 'canceled' | 'failed';
 
@@ -23,6 +23,9 @@ const TERMINAL: readonly SendPhase[] = ['done', 'rejected', 'canceled', 'failed'
 /**
  * Sends one file to one receiver over one DataChannel. Each receiver gets its own
  * instance, so a failure or cancel here cannot affect any other receiver.
+ *
+ * With `separate`, the receiver may ask for the files back to back instead of the
+ * zip `file`; whichever it picks becomes what this instance streams.
  */
 export class FileSender {
   private phase: SendPhase = 'waiting';
@@ -30,12 +33,15 @@ export class FileSender {
   private sent = 0;
   private acked = 0;
   private wake: (() => void) | undefined;
+  private payload: FileSource;
 
   constructor(
     private readonly channel: ChannelLike,
     private readonly file: FileSource,
     private readonly onChange: (snapshot: SendSnapshot) => void,
+    private readonly separate?: SeparateSource,
   ) {
+    this.payload = file;
     channel.bufferedAmountLowThreshold = BUFFERED_LOW_THRESHOLD;
     channel.addEventListener('message', this.handleMessage);
     channel.addEventListener('bufferedamountlow', this.notify);
@@ -43,7 +49,7 @@ export class FileSender {
   }
 
   get snapshot(): SendSnapshot {
-    return { phase: this.phase, ackedBytes: this.acked, totalBytes: this.file.size, reason: this.reason };
+    return { phase: this.phase, ackedBytes: this.acked, totalBytes: this.payload.size, reason: this.reason };
   }
 
   private get terminal(): boolean {
@@ -57,6 +63,7 @@ export class FileSender {
       name: this.file.name,
       size: this.file.size,
       mime: this.file.type || 'application/octet-stream',
+      ...(this.separate && { files: this.separate.entries }),
     };
     if (!trySend(this.channel, JSON.stringify(meta))) {
       this.finish('failed', 'connection-lost');
@@ -116,6 +123,13 @@ export class FileSender {
     switch (message.t) {
       case 'accept':
         if (this.phase === 'waiting') {
+          if (message.as === 'files') {
+            if (!this.separate) {
+              this.finish('failed', 'protocol');
+              break;
+            }
+            this.payload = this.separate.source;
+          }
           this.phase = 'sending';
           this.onChange(this.snapshot);
           void this.pump();
@@ -145,7 +159,7 @@ export class FileSender {
 
   /** Streams chunks with backpressure on both the local send buffer and unacked bytes. */
   private async pump(): Promise<void> {
-    const { size } = this.file;
+    const { size } = this.payload;
     while (this.sent < size) {
       while (!this.terminal && (this.channel.bufferedAmount + CHUNK_SIZE > MAX_BUFFERED_AMOUNT || this.sent - this.acked >= MAX_UNACKED_BYTES)) {
         await this.nextWake();
@@ -155,7 +169,7 @@ export class FileSender {
       const end = Math.min(this.sent + CHUNK_SIZE, size);
       let chunk: ArrayBuffer;
       try {
-        chunk = await this.file.slice(this.sent, end).arrayBuffer();
+        chunk = await this.payload.slice(this.sent, end).arrayBuffer();
       } catch {
         this.finish('failed', 'read-failed');
         return;

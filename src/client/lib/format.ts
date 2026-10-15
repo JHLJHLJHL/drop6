@@ -28,6 +28,14 @@ export function formatCode(code: string): string {
   return code.replace(/^(\d{3})(\d+)$/, '$1 $2');
 }
 
+/** "name.ext" -> "name (2).ext" */
+export function numberedName(name: string, n: number): string {
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  return `${base} (${n})${ext}`;
+}
+
 /** Keeps only characters that are safe in a download / save-dialog file name. */
 export function sanitizeFileName(name: string): string {
   // eslint-disable-next-line no-control-regex

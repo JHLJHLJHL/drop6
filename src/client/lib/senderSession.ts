@@ -1,6 +1,6 @@
 import { hasTurnServer, type IceServerConfig } from '../../shared/ice';
 import { MAX_RECEIVERS, type ProgressState, type ServerMessage, type SignalData } from '../../shared/protocol';
-import type { FileSource } from './channel';
+import type { FileSource, SeparateSource } from './channel';
 import { FileSender, type SendSnapshot } from './fileSender';
 import { fetchIceServers } from './iceConfig';
 import { CONNECT_TIMEOUT_MS, CandidateQueue, candidateSignal, createPeerConnection } from './rtc';
@@ -25,7 +25,7 @@ export type SenderPhase = 'starting' | 'open' | 'closed' | 'error';
 
 export interface SenderState {
   phase: SenderPhase;
-  /** What is actually sent: the file itself, or the zip bundling several files. */
+  /** What is offered: the file itself, or the zip bundling several files (a receiver may take those files one by one instead). */
   file: { name: string; size: number };
   /** How many files the user picked (more than 1 means `file` is a zip). */
   fileCount: number;
@@ -50,6 +50,7 @@ export function isPeerActive(peer: SenderPeerView): boolean {
 interface LinkDeps {
   iceServers: IceServerConfig[];
   file: FileSource;
+  separate: SeparateSource | undefined;
   sendSignal(to: string, data: SignalData): void;
   onChange(view: SenderPeerView): void;
 }
@@ -83,7 +84,7 @@ class PeerLink {
     channel.binaryType = 'arraybuffer';
     channel.onopen = () => {
       clearTimeout(this.timer);
-      this.transfer = new FileSender(channel, deps.file, (snapshot) => this.onTransfer(snapshot));
+      this.transfer = new FileSender(channel, deps.file, (snapshot) => this.onTransfer(snapshot), deps.separate);
       this.transfer.start();
     };
     this.timer = setTimeout(() => this.fail('connect-timeout'), CONNECT_TIMEOUT_MS);
@@ -172,6 +173,7 @@ export class SenderSession extends Store<SenderState> {
   constructor(
     private readonly file: FileSource,
     fileCount = 1,
+    private readonly separate?: SeparateSource,
   ) {
     super({
       phase: 'starting',
@@ -253,6 +255,7 @@ export class SenderSession extends Store<SenderState> {
     const link = new PeerLink(id, this.nextName(), {
       iceServers: this.iceServers,
       file: this.file,
+      separate: this.separate,
       sendSignal: (to, data) => this.signaling?.send({ type: 'signal', to, data }),
       onChange: (view) => this.updatePeer(view),
     });

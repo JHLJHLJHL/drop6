@@ -1,12 +1,13 @@
 import {
   ACK_INTERVAL_BYTES,
-  canReceiveInMemory,
+  payloadSize,
   senderMessageSchema,
+  type Delivery,
   type FileMeta,
   type ReceiverMessage,
 } from '../../shared/transfer';
 import { trySend, type ChannelLike } from './channel';
-import type { FileSink } from './sink';
+import { receiveOptions, type FileSink } from './sink';
 
 export type ReceivePhase = 'waiting' | 'review' | 'blocked' | 'receiving' | 'done' | 'canceled' | 'failed';
 
@@ -24,6 +25,7 @@ const TERMINAL: readonly ReceivePhase[] = ['blocked', 'done', 'canceled', 'faile
 export class FileReceiver {
   private phase: ReceivePhase = 'waiting';
   private meta: FileMeta | undefined;
+  private delivery: Delivery = 'zip';
   private reason: string | undefined;
   private sink: FileSink | undefined;
   private received = 0;
@@ -49,13 +51,24 @@ export class FileReceiver {
     return TERMINAL.includes(this.phase);
   }
 
-  /** User accepted: start receiving into `sink`. Only valid while reviewing the file info. */
-  accept(sink: FileSink): void {
+  /** Bytes this transfer will carry: the file or zip, or the several files added up. */
+  private get expectedBytes(): number {
+    return this.meta ? payloadSize(this.meta, this.delivery) : 0;
+  }
+
+  /**
+   * User accepted: start receiving into `sink`. Only valid while reviewing the file info.
+   * `delivery` 'files' takes the files of a multi-file transfer one by one instead of the zip;
+   * then `sink` must split the incoming bytes by `meta.files`.
+   */
+  accept(sink: FileSink, delivery: Delivery = 'zip'): void {
     if (this.phase !== 'review') return;
+    if (!this.meta || !receiveOptions(this.meta, !this.options.memoryOnly)[delivery]) return;
     this.sink = sink;
+    this.delivery = delivery;
     this.phase = 'receiving';
     this.onChange(this.snapshot);
-    if (!this.send({ t: 'accept' })) void this.fail('connection-lost');
+    if (!this.send(delivery === 'files' ? { t: 'accept', as: 'files' } : { t: 'accept' })) void this.fail('connection-lost');
   }
 
   /** User said no before anything was sent. */
@@ -113,7 +126,7 @@ export class FileReceiver {
     // Writes already in flight may still complete the file; wait for them before judging.
     void this.writeChain.then(() => {
       if (this.terminal || this.settling) return;
-      if (this.meta && this.saved === this.meta.size) void this.finalize(this.meta.size);
+      if (this.meta && this.saved === this.expectedBytes) void this.finalize(this.expectedBytes);
       else void this.fail('connection-lost');
     });
   };
@@ -146,8 +159,8 @@ export class FileReceiver {
           void this.fail('protocol');
           break;
         }
-        this.meta = { name: message.name, size: message.size, mime: message.mime };
-        if (this.options.memoryOnly && !canReceiveInMemory(message.size)) {
+        this.meta = { name: message.name, size: message.size, mime: message.mime, files: message.files };
+        if (this.options.memoryOnly && !this.canTakeAny(this.meta)) {
           this.send({ t: 'reject', reason: 'too-large' });
           this.finish('blocked', 'too-large');
         } else {
@@ -164,9 +177,15 @@ export class FileReceiver {
     }
   }
 
+  /** A memory-only browser can still take the files one by one when the zip itself is too big. */
+  private canTakeAny(meta: FileMeta): boolean {
+    const options = receiveOptions(meta, !this.options.memoryOnly);
+    return options.zip || options.files;
+  }
+
   private handleChunk(chunk: ArrayBuffer): void {
     const { meta, sink } = this;
-    if (!meta || !sink || this.received + chunk.byteLength > meta.size) {
+    if (!meta || !sink || this.received + chunk.byteLength > this.expectedBytes) {
       void this.fail('protocol');
       return;
     }
@@ -187,7 +206,7 @@ export class FileReceiver {
   }
 
   private ackIfDue(): void {
-    const size = this.meta?.size ?? 0;
+    const size = this.expectedBytes;
     if (this.saved > this.lastAcked && (this.saved - this.lastAcked >= ACK_INTERVAL_BYTES || this.saved === size)) {
       this.lastAcked = this.saved;
       this.send({ t: 'ack', bytes: this.saved });
@@ -200,7 +219,7 @@ export class FileReceiver {
     await this.writeChain;
     const { meta, sink } = this;
     if (this.terminal || !meta || !sink) return;
-    if (this.saved !== meta.size || announcedSize !== meta.size) {
+    if (this.saved !== this.expectedBytes || announcedSize !== this.expectedBytes) {
       await this.fail('protocol');
       return;
     }

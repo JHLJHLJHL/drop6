@@ -1,4 +1,6 @@
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import type { FileEntry } from '../../shared/transfer';
+import { formatBytes } from '../lib/format';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'text';
@@ -60,6 +62,25 @@ export function FileCard({ name, detail }: { name: string; detail: string }) {
     <div className="file-card">
       <span className="file-name">{name}</span>
       <span className="file-detail">{detail}</span>
+    </div>
+  );
+}
+
+/** Every file of a multi-file transfer, with its size. */
+export function FileList({ files }: { files: readonly FileEntry[] }) {
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  return (
+    <div className="file-card">
+      <span className="file-name">{`파일 ${files.length}개`}</span>
+      <span className="file-detail">{formatBytes(total)}</span>
+      <ul className="file-list" aria-label="파일 목록">
+        {files.map((file, i) => (
+          <li key={i}>
+            <span className="file-list-name">{file.name}</span>
+            <span className="file-detail">{formatBytes(file.size)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

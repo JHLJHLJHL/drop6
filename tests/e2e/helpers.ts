@@ -33,6 +33,7 @@ export async function advanceServerClock(request: APIRequestContext, ms: number)
 export async function useBlobDownloads(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
     delete (window as unknown as Record<string, unknown>).showSaveFilePicker;
+    delete (window as unknown as Record<string, unknown>).showDirectoryPicker;
   });
 }
 
@@ -62,10 +63,41 @@ export async function useOpfsSaveDialog(context: BrowserContext, writeDelayMs = 
   }, writeDelayMs);
 }
 
+/** The folder the fake folder dialog "picks"; read it back with readPickedFolder. */
+export const PICKED_FOLDER = 'picked-folder';
+
+/** Makes the folder dialog hand back an OPFS folder named PICKED_FOLDER, so files streamed into it can be read back. */
+export async function useOpfsFolderDialog(context: BrowserContext): Promise<void> {
+  await context.addInitScript((folder: string) => {
+    (window as unknown as Record<string, unknown>).showDirectoryPicker = async () => {
+      const root = await navigator.storage.getDirectory();
+      return root.getDirectoryHandle(folder, { create: true });
+    };
+  }, PICKED_FOLDER);
+}
+
+/** Every file in the fake picked folder: name -> bytes. */
+export async function readPickedFolder(page: Page): Promise<Record<string, Buffer>> {
+  const saved = await page.evaluate(async (folder) => {
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle(folder);
+    const out: Record<string, number[]> = {};
+    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemFileHandle]> }).entries()) {
+      out[name] = Array.from(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+    }
+    return out;
+  }, PICKED_FOLDER);
+  return Object.fromEntries(Object.entries(saved).map(([name, bytes]) => [name, Buffer.from(bytes)]));
+}
+
 export async function newReceiverContext(browser: Browser, mode: 'blob' | 'opfs' = 'blob', writeDelayMs = 0): Promise<BrowserContext> {
   const context = await browser.newContext();
-  if (mode === 'blob') await useBlobDownloads(context);
-  else await useOpfsSaveDialog(context, writeDelayMs);
+  if (mode === 'blob') {
+    await useBlobDownloads(context);
+  } else {
+    await useOpfsSaveDialog(context, writeDelayMs);
+    await useOpfsFolderDialog(context);
+  }
   return context;
 }
 
@@ -97,8 +129,8 @@ export async function joinAndReview(page: Page, code: string): Promise<void> {
   await expect(page.getByRole('heading', { name: '이 파일을 받을까요?' })).toBeVisible();
 }
 
-export async function acceptAndDownload(page: Page): Promise<Download> {
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '파일 받기' }).click()]);
+export async function acceptAndDownload(page: Page, button = '파일 받기'): Promise<Download> {
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: button }).click()]);
   return download;
 }
 

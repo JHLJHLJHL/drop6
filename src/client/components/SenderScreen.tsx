@@ -53,9 +53,9 @@ export function SenderScreen({ files, onExit }: SenderScreenProps) {
       prepared.current = { files, result: prepareSource(files, (done, total) => setProgress({ done, total })) };
     }
     prepared.current.result.then(
-      ({ source, fileCount }) => {
+      ({ source, fileCount, separate }) => {
         if (cancelled) return;
-        created = new SenderSession(source, fileCount);
+        created = new SenderSession(source, fileCount, separate);
         setSession(created);
         void created.start();
       },

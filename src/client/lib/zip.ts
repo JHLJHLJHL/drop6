@@ -1,7 +1,8 @@
-import { sanitizeFileName } from './format';
+import { MAX_BUNDLE_FILES } from '../../shared/transfer';
+import { numberedName, sanitizeFileName } from './format';
 
 /** Several files are bundled into one classic (non-ZIP64) zip, so these are hard limits. */
-export const MAX_ZIP_FILES = 1000;
+export const MAX_ZIP_FILES = MAX_BUNDLE_FILES;
 export const MAX_ZIP_BYTES = 0xffffffff;
 
 export class ZipLimitError extends Error {
@@ -44,15 +45,15 @@ export function uniqueNames(names: readonly string[]): string[] {
   const used = new Set<string>();
   return names.map((name) => {
     let candidate = name;
-    if (used.has(candidate.toLowerCase())) {
-      const dot = name.lastIndexOf('.');
-      const base = dot > 0 ? name.slice(0, dot) : name;
-      const ext = dot > 0 ? name.slice(dot) : '';
-      for (let n = 2; used.has(candidate.toLowerCase()); n += 1) candidate = `${base} (${n})${ext}`;
-    }
+    for (let n = 2; used.has(candidate.toLowerCase()); n += 1) candidate = numberedName(name, n);
     used.add(candidate.toLowerCase());
     return candidate;
   });
+}
+
+/** The names the files carry inside the bundle (and when saved one by one): safe, and different from each other. */
+export function entryNames(files: readonly File[]): string[] {
+  return uniqueNames(files.map((file) => sanitizeFileName(file.name)));
 }
 
 function dosDateTime(ms: number): { time: number; date: number } {
@@ -74,7 +75,7 @@ export async function buildZip(files: readonly File[], onProgress?: (done: numbe
   if (files.length > MAX_ZIP_FILES) throw new ZipLimitError('too-many');
 
   const encoder = new TextEncoder();
-  const names = uniqueNames(files.map((file) => sanitizeFileName(file.name))).map((name) => encoder.encode(name));
+  const names = entryNames(files).map((name) => encoder.encode(name));
   const total = files.reduce((sum, file, i) => sum + 30 + file.size + 46 + 2 * names[i]!.length, 22);
   if (total > MAX_ZIP_BYTES) throw new ZipLimitError('too-large');
 

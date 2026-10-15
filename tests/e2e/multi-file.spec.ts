@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Download } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import {
   acceptAndDownload,
   joinAndReview,
   makeTestFile,
   newReceiverContext,
+  PICKED_FOLDER,
   readCode,
+  readPickedFolder,
   resetServer,
   sha256,
   type TestFile,
@@ -39,10 +41,11 @@ test('several files arrive as one zip that holds every file unchanged', async ({
   const context = await newReceiverContext(browser);
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);
-  await expect(receiver.getByText(ZIP_NAME)).toBeVisible();
-  await expect(receiver.getByText(/application\/zip/)).toBeVisible();
+  const list = receiver.getByRole('list', { name: '파일 목록' });
+  for (const file of files) await expect(list.getByText(file.name, { exact: true })).toBeVisible();
+  await expect(receiver.getByText('파일 3개', { exact: true })).toBeVisible();
 
-  const download = await acceptAndDownload(receiver);
+  const download = await acceptAndDownload(receiver, 'zip 하나로 받기');
   expect(download.suggestedFilename()).toBe(ZIP_NAME);
 
   const entries = unzipSync(new Uint8Array(readFileSync(await download.path())));
@@ -61,7 +64,7 @@ test('the zip also streams to disk through the File System Access API', async ({
   const context = await newReceiverContext(browser, 'opfs');
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);
-  await receiver.getByRole('button', { name: '파일 받기' }).click();
+  await receiver.getByRole('button', { name: 'zip 하나로 받기' }).click();
   await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
 
   const saved = await receiver.evaluate(async (name) => {
@@ -83,11 +86,78 @@ test('three receivers each get the same zip', async ({ browser, page }) => {
   const contexts = await Promise.all([1, 2, 3].map(() => newReceiverContext(browser)));
   const pages = await Promise.all(contexts.map((context) => context.newPage()));
   for (const receiver of pages) await joinAndReview(receiver, code);
-  const downloads = await Promise.all(pages.map((receiver) => acceptAndDownload(receiver)));
+  const downloads = await Promise.all(pages.map((receiver) => acceptAndDownload(receiver, 'zip 하나로 받기')));
   const zips = await Promise.all(downloads.map(async (d) => readFileSync(await d.path())));
   expect(new Set(zips.map((zip) => sha256(zip))).size).toBe(1);
   for (const file of files) expect(sha256(unzipSync(new Uint8Array(zips[0]!))[file.name]!)).toBe(file.hash);
   await Promise.all(contexts.map((context) => context.close()));
+});
+
+test('files can also be downloaded one by one instead of the zip', async ({ browser, page }) => {
+  const files = threeFiles();
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles(toInput(files));
+  const code = await readCode(page);
+
+  const context = await newReceiverContext(browser);
+  const receiver = await context.newPage();
+  await joinAndReview(receiver, code);
+
+  const downloads: Download[] = [];
+  receiver.on('download', (download) => downloads.push(download));
+  await receiver.getByRole('button', { name: '파일 따로 받기' }).click();
+  await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
+  await expect.poll(() => downloads.length).toBe(files.length);
+
+  expect(downloads.map((d) => d.suggestedFilename())).toEqual(files.map((f) => f.name));
+  for (const [i, file] of files.entries()) expect(sha256(readFileSync(await downloads[i]!.path()))).toBe(file.hash);
+  await context.close();
+});
+
+test('files stream into a chosen folder, each with exactly its own bytes', async ({ browser, page }) => {
+  const files = threeFiles();
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles(toInput(files));
+  const code = await readCode(page);
+
+  const context = await newReceiverContext(browser, 'opfs');
+  const receiver = await context.newPage();
+  await joinAndReview(receiver, code);
+  await receiver.getByRole('button', { name: '파일 따로 받기' }).click();
+  await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
+  await expect(receiver.getByText(`'${PICKED_FOLDER}' 폴더에 저장했어요`)).toBeVisible();
+
+  const saved = await readPickedFolder(receiver);
+  expect(Object.keys(saved).sort()).toEqual(files.map((f) => f.name).sort());
+  for (const file of files) expect(sha256(saved[file.name]!)).toBe(file.hash);
+  await context.close();
+});
+
+test('the sender sees both finish when one receiver takes the zip and another the files', async ({ browser, page }) => {
+  const files = threeFiles();
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles(toInput(files));
+  const code = await readCode(page);
+
+  const [zipContext, filesContext] = await Promise.all([newReceiverContext(browser), newReceiverContext(browser, 'opfs')]);
+  const [zipReceiver, filesReceiver] = await Promise.all([zipContext.newPage(), filesContext.newPage()]);
+  await joinAndReview(zipReceiver, code);
+  await joinAndReview(filesReceiver, code);
+
+  const [zipDownload] = await Promise.all([
+    zipReceiver.waitForEvent('download'),
+    zipReceiver.getByRole('button', { name: 'zip 하나로 받기' }).click(),
+    filesReceiver.getByRole('button', { name: '파일 따로 받기' }).click(),
+  ]);
+  await expect(zipReceiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
+  await expect(filesReceiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
+  await expect(page.getByText('받기를 마쳤어요')).toHaveCount(2);
+
+  const entries = unzipSync(new Uint8Array(readFileSync(await zipDownload.path())));
+  for (const file of files) expect(sha256(entries[file.name]!)).toBe(file.hash);
+  const saved = await readPickedFolder(filesReceiver);
+  for (const file of files) expect(sha256(saved[file.name]!)).toBe(file.hash);
+  await Promise.all([zipContext.close(), filesContext.close()]);
 });
 
 test('a single file is still sent as it is, not zipped', async ({ browser, page }) => {

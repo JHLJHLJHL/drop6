@@ -224,7 +224,7 @@ describe('SenderView', () => {
 });
 
 function receiverState(patch: Partial<ReceiverState> = {}): ReceiverState {
-  return { phase: 'review', savedBytes: 0, speed: 0, mode: 'file-system', hasTurn: true, ...patch };
+  return { phase: 'review', savedBytes: 0, speed: 0, delivery: 'zip', mode: 'file-system', hasTurn: true, ...patch };
 }
 
 describe('ReceiverView', () => {
@@ -278,6 +278,95 @@ describe('ReceiverView', () => {
     const state = receiverState({ phase: 'done', meta, savedBytes: meta.size, mode: 'memory' });
     render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
     expect(screen.getByText(/다운로드 폴더/)).toBeInTheDocument();
+  });
+
+  describe('several files', () => {
+    const files = [
+      { name: 'report.hwp', size: 2 * 1024 * 1024 },
+      { name: 'photo.png', size: 1024 },
+      { name: 'notes.txt', size: 0 },
+    ];
+    const bundle = { name: 'DROP6 파일 3개.zip', size: 2 * 1024 * 1024 + 2000, mime: 'application/zip', files };
+
+    it('lists every file and offers the zip and the files one by one', async () => {
+      const onAccept = vi.fn();
+      render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={onAccept} onCancel={noop} onRetry={noop} />);
+      const list = screen.getByRole('list', { name: '파일 목록' });
+      expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+        'report.hwp2 MB',
+        'photo.png1 KB',
+        'notes.txt0 B',
+      ]);
+      expect(screen.getByText('파일 3개')).toBeInTheDocument();
+
+      expect(onAccept).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'zip 하나로 받기' }));
+      expect(onAccept).toHaveBeenLastCalledWith('zip');
+      await userEvent.click(screen.getByRole('button', { name: '파일 따로 받기' }));
+      expect(onAccept).toHaveBeenLastCalledWith('files');
+    });
+
+    it('does not show the plain single-file button', () => {
+      render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.queryByRole('button', { name: '파일 받기' })).not.toBeInTheDocument();
+    });
+
+    it('explains the folder to pick when streaming to disk', () => {
+      render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText(/새 폴더/)).toBeInTheDocument();
+    });
+
+    it('warns that every file starts a download of its own in a memory-only browser', () => {
+      render(<ReceiverView state={receiverState({ meta: bundle, mode: 'memory' })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText(/파일마다 다운로드가 시작돼요/)).toBeInTheDocument();
+    });
+
+    it('offers only the files one by one when the zip is too big for memory', async () => {
+      const onAccept = vi.fn();
+      const half = 300 * 1024 * 1024;
+      const big = { ...bundle, size: half * 2 + 2000, files: [{ name: 'a.bin', size: half }, { name: 'b.bin', size: half }] };
+      render(<ReceiverView state={receiverState({ meta: big, mode: 'memory' })} onAccept={onAccept} onCancel={noop} onRetry={noop} />);
+      expect(screen.queryByRole('button', { name: 'zip 하나로 받기' })).not.toBeInTheDocument();
+      expect(screen.getByText(/zip 전체/)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: '파일 따로 받기' }));
+      expect(onAccept).toHaveBeenCalledWith('files');
+    });
+
+    it('can decline', async () => {
+      const onCancel = vi.fn();
+      render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={noop} onCancel={onCancel} onRetry={noop} />);
+      await userEvent.click(screen.getByRole('button', { name: '받지 않기' }));
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it('measures progress against the files added up, not the zip', () => {
+      const state = receiverState({ phase: 'receiving', meta: bundle, delivery: 'files', savedBytes: 1024 * 1024 + 512 });
+      render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText('파일 3개')).toBeInTheDocument();
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+      expect(screen.getByText(/50% · 1 MB \/ 2 MB/)).toBeInTheDocument();
+    });
+
+    it('measures progress against the zip when the zip was chosen', () => {
+      const state = receiverState({ phase: 'receiving', meta: bundle, delivery: 'zip', savedBytes: bundle.size / 2 });
+      render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText('DROP6 파일 3개.zip')).toBeInTheDocument();
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+    });
+
+    it('names the folder the files went into', () => {
+      const state = receiverState({ phase: 'done', meta: bundle, delivery: 'files', savedBytes: files[0]!.size + files[1]!.size, savedName: 'from-friend' });
+      render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByRole('heading')).toHaveTextContent('다 받았어요');
+      expect(screen.getByText(/'from-friend' 폴더에 저장했어요/)).toBeInTheDocument();
+      expect(screen.getByText('파일 3개')).toBeInTheDocument();
+    });
+
+    it('points to the downloads folder after the files were downloaded one by one', () => {
+      const state = receiverState({ phase: 'done', meta: bundle, delivery: 'files', mode: 'memory' });
+      render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText(/다운로드 폴더/)).toBeInTheDocument();
+    });
   });
 
   it.each([
