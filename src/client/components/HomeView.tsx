@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { Button, Heading } from './ui';
+import { Button, PrivacyNote, TitleBlock } from './ui';
 
 interface HomeViewProps {
   onFile(file: File): void;
@@ -42,10 +42,7 @@ export function HomeView({ onFile, onOpenReceive }: HomeViewProps) {
 
   return (
     <section className="card stack">
-      <div className="heading-center">
-        <Heading focusOnMount={false}>어떤 파일을 보낼까요?</Heading>
-        <p className="sub">파일을 고르면 6자리 코드를 만들어드려요.</p>
-      </div>
+      <TitleBlock title="어떤 파일을 보낼까요?" sub="파일을 고르면 6자리 코드를 만들어드려요." focusOnMount={false} />
 
       <div
         className={`dropzone${dragging ? ' is-dragging' : ''}`}
@@ -79,6 +76,7 @@ export function HomeView({ onFile, onOpenReceive }: HomeViewProps) {
       >
         파일을 받으러 오셨나요? 코드 입력하기
       </a>
+      <PrivacyNote />
     </section>
   );
 }

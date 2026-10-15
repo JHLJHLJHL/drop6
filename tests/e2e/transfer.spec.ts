@@ -52,7 +52,9 @@ test('one sender delivers the same file to three receivers (SHA-256 verified)', 
     await expect(receiver.getByText(/다운로드 폴더/)).toBeVisible();
   }
   await expect(page.getByText('받기를 마쳤어요')).toHaveCount(3);
-  await expect(page.getByRole('progressbar', { name: '받는 사람 1 진행률' })).toHaveAttribute('aria-valuenow', '100');
+  const bars = page.getByRole('progressbar');
+  await expect(bars).toHaveCount(3);
+  for (let i = 0; i < 3; i += 1) await expect(bars.nth(i)).toHaveAttribute('aria-valuenow', '100');
   await Promise.all(contexts.map((context) => context.close()));
 });
 

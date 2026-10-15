@@ -256,6 +256,7 @@ p {
 .note {
   color: var(--grey-700);
   font-size: 0.875rem;
+  text-align: center;
 }
 
 .notes {
@@ -575,7 +576,15 @@ p {
 }
 
 .peer-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
+}
+
+.peer-name svg {
+  flex: none;
+  color: var(--primary);
 }
 
 .peer-status {

@@ -1,9 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { makeTestFile, resetServer, startSending } from './helpers';
+import { SPECIES_NAMES } from '../../src/client/lib/speciesNames';
+import { joinAndReview, makeTestFile, newReceiverContext, resetServer, startSending } from './helpers';
 
 test.beforeEach(async ({ request }) => {
   await resetServer(request);
 });
+
+const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음.';
 
 const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
 
@@ -72,8 +75,12 @@ test('the removed notes are gone from the send screens', async ({ page }) => {
   ];
   await page.goto('/');
   for (const text of removed) await expect(page.getByText(text)).toHaveCount(0);
+  await expect(page.getByText(PRIVACY)).toBeVisible();
+  await expect(page.getByText(PRIVACY)).toHaveCSS('text-align', 'center');
   await startSending(page, makeTestFile(2048));
   for (const text of removed) await expect(page.getByText(text)).toHaveCount(0);
+  await expect(page.getByText(PRIVACY)).toBeVisible();
+  await expect(page.getByText(PRIVACY)).toHaveCSS('text-align', 'center');
 });
 
 test.describe('360px', () => {
@@ -95,4 +102,56 @@ test.describe('360px', () => {
     expect(toast.x).toBeGreaterThanOrEqual(0);
     expect(toast.x + toast.width).toBeLessThanOrEqual(360);
   });
+});
+
+test('receivers show up under fish scientific names with a Lucide fish icon', async ({ browser, page }) => {
+  const code = await startSending(page, makeTestFile(64 * 1024));
+  const contexts = await Promise.all([1, 2, 3].map(() => newReceiverContext(browser)));
+  const pages = await Promise.all(contexts.map((context) => context.newPage()));
+  for (const receiver of pages) await joinAndReview(receiver, code);
+
+  const names = page.locator('.peer-name');
+  await expect(names).toHaveCount(3);
+  const texts = (await names.allTextContents()).map((text) => text.trim());
+  expect(new Set(texts).size).toBe(3);
+  for (const text of texts) expect(SPECIES_NAMES).toContain(text);
+  for (let i = 0; i < 3; i += 1) {
+    const icon = names.nth(i).locator('svg.lucide-fish');
+    await expect(icon).toHaveCount(1);
+    // the icon is in front of the name
+    const iconBox = (await icon.boundingBox())!;
+    const nameBox = (await names.nth(i).boundingBox())!;
+    expect(iconBox.x).toBeLessThanOrEqual(nameBox.x + 1);
+  }
+  await Promise.all(contexts.map((context) => context.close()));
+});
+
+test('every receive step is centered: review, receiving and canceled', async ({ browser, page }) => {
+  const code = await startSending(page, makeTestFile(2 * 1024 * 1024));
+  const context = await newReceiverContext(browser, 'opfs', 150);
+  const receiver = await context.newPage();
+  await joinAndReview(receiver, code);
+
+  const centered = async (heading: string) => {
+    const title = receiver.getByRole('heading', { name: heading });
+    await expect(title).toBeVisible();
+    await expect(receiver.locator('.heading-center')).toHaveCSS('text-align', 'center');
+    const block = (await receiver.locator('.heading-center').boundingBox())!;
+    const text = (await title.boundingBox())!;
+    const card = (await receiver.locator('.card').boundingBox())!;
+    // title sits in the middle of the card, not against the left edge
+    expect(Math.abs(text.x + text.width / 2 - (card.x + card.width / 2))).toBeLessThan(8);
+    expect(block.width).toBeGreaterThan(0);
+  };
+
+  await centered('이 파일을 받을까요?');
+  await expect(receiver.getByText('보내는 사람이 보낸 파일 정보예요.')).toBeVisible();
+  await expect(receiver.getByText(PRIVACY)).toHaveCSS('text-align', 'center');
+
+  await receiver.getByRole('button', { name: '파일 받기' }).click();
+  await centered('파일을 받는 중이에요');
+  await receiver.getByRole('button', { name: '받기 취소' }).click();
+  await centered('받기를 취소했어요');
+  await expect(receiver.getByText('다시 받으려면 보내는 사람에게 코드를 받아 입력해주세요.')).toBeVisible();
+  await context.close();
 });

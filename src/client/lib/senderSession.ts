@@ -5,6 +5,7 @@ import { fetchIceServers } from './iceConfig';
 import { CONNECT_TIMEOUT_MS, CandidateQueue, candidateSignal, createPeerConnection } from './rtc';
 import { connectSignaling, type SignalingClient } from './signalingClient';
 import { SpeedMeter } from './speedMeter';
+import { createNamePicker } from './speciesNames';
 import { Store } from './store';
 
 export type SenderPeerPhase = 'connecting' | 'waiting' | 'sending' | 'done' | 'rejected' | 'canceled' | 'failed' | 'left';
@@ -160,7 +161,8 @@ export class SenderSession extends Store<SenderState> {
   private signaling: SignalingClient | undefined;
   private iceServers: IceServerConfig[] = [];
   private readonly links = new Map<string, PeerLink>();
-  private peerCounter = 0;
+  /** Receivers are shown under fish scientific names instead of numbers. */
+  private readonly nextName = createNamePicker();
   private disposed = false;
 
   constructor(private readonly file: File) {
@@ -240,8 +242,7 @@ export class SenderSession extends Store<SenderState> {
   }
 
   private addPeer(id: string): void {
-    this.peerCounter += 1;
-    const link = new PeerLink(id, `받는 사람 ${this.peerCounter}`, {
+    const link = new PeerLink(id, this.nextName(), {
       iceServers: this.iceServers,
       file: this.file,
       sendSignal: (to, data) => this.signaling?.send({ type: 'signal', to, data }),

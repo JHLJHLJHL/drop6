@@ -32,6 +32,20 @@ export function Heading({ children, focusOnMount = true }: { children: ReactNode
   );
 }
 
+/** Centered page title with its optional subtitle. */
+export function TitleBlock({ title, sub, focusOnMount }: { title: ReactNode; sub?: ReactNode; focusOnMount?: boolean }) {
+  return (
+    <div className="heading-center">
+      <Heading {...(focusOnMount === undefined ? {} : { focusOnMount })}>{title}</Heading>
+      {sub && <p className="sub">{sub}</p>}
+    </div>
+  );
+}
+
+export function PrivacyNote() {
+  return <p className="note privacy-note">파일은 암호화되어 전송, 서버에 저장하지 않음.</p>;
+}
+
 export function ProgressBar({ percent, label }: { percent: number; label: string }) {
   const value = Math.max(0, Math.min(100, Math.floor(percent)));
   return (

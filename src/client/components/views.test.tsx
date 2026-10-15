@@ -116,7 +116,7 @@ function senderState(patch: Partial<SenderState> = {}): SenderState {
 
 const peerView = (patch: Partial<SenderPeerView>): SenderPeerView => ({
   id: 'a'.repeat(16),
-  label: '받는 사람 1',
+  label: '파라리크티스 올리바케우스',
   phase: 'sending',
   ackedBytes: 0,
   totalBytes: 100,
@@ -156,15 +156,15 @@ describe('SenderView', () => {
       connectedCount: 2,
       peers: [
         peerView({ ackedBytes: 25, totalBytes: 100, speed: 1_048_576 }),
-        peerView({ id: 'b'.repeat(16), label: '받는 사람 2', phase: 'connecting' }),
+        peerView({ id: 'b'.repeat(16), label: '세바스테스 슈레겔리', phase: 'connecting' }),
       ],
     });
     render(<SenderView state={state} now={1_000_000} onLeave={noop} onRenew={noop} />);
     expect(screen.getByText('2 / 3명')).toBeInTheDocument();
-    const bar = screen.getByRole('progressbar', { name: '받는 사람 1 진행률' });
+    const bar = screen.getByRole('progressbar', { name: '파라리크티스 올리바케우스 진행률' });
     expect(bar).toHaveAttribute('aria-valuenow', '25');
     expect(screen.getByText(/1 MB\/s/)).toBeInTheDocument();
-    expect(screen.getByText('받는 사람 2')).toBeInTheDocument();
+    expect(screen.getByText('세바스테스 슈레겔리')).toBeInTheDocument();
   });
 
   it('after 30 minutes says new people cannot join but running transfers continue', () => {
@@ -313,5 +313,83 @@ describe('removed copy', () => {
   ])('%s no longer shows the removed notes', (_name, view) => {
     render(view());
     for (const phrase of REMOVED) expect(screen.queryByText(phrase)).not.toBeInTheDocument();
+  });
+});
+
+const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음.';
+
+describe('privacy note', () => {
+  const noop = () => {};
+  const meta = { name: 'photo.png', size: 3 * 1024 * 1024, mime: 'image/png' };
+
+  it.each([
+    ['home', () => <HomeView onFile={noop} onOpenReceive={noop} />],
+    ['sender, waiting for people', () => <SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />],
+    ['receiver, review', () => <ReceiverView state={receiverState({ meta })} onAccept={noop} onCancel={noop} onRetry={noop} />],
+  ])('%s shows the short wording, centered', (_name, view) => {
+    render(view());
+    const note = screen.getByText(PRIVACY);
+    expect(note).toHaveClass('privacy-note');
+  });
+});
+
+describe('centered titles', () => {
+  const noop = () => {};
+  const meta = { name: 'photo.png', size: 3 * 1024 * 1024, mime: 'image/png' };
+  const receiver = (patch: Partial<ReceiverState>) => (
+    <ReceiverView state={receiverState({ meta, ...patch })} onAccept={noop} onCancel={noop} onRetry={noop} />
+  );
+  const sender = (patch: Partial<SenderState>, now = 1_000_000) => (
+    <SenderView state={senderState(patch)} now={now} onLeave={noop} onRenew={noop} />
+  );
+
+  it.each([
+    ['home', <HomeView key="h" onFile={noop} onOpenReceive={noop} />],
+    ['code entry', <CodeEntryView key="c" onSubmit={noop} onOpenHome={noop} />],
+    ['sender starting', sender({ phase: 'starting', code: undefined })],
+    ['sender error', sender({ phase: 'error' })],
+    ['sender closed', sender({ phase: 'closed', reason: 'CONNECTION_LOST' })],
+    ['sender open', sender({})],
+    ['sender expired', sender({}, 1_000_000 + 31 * MIN)],
+    ['receiver joining', receiver({ phase: 'joining' })],
+    ['receiver connecting', receiver({ phase: 'connecting' })],
+    ['receiver review', receiver({ phase: 'review' })],
+    ['receiver blocked', receiver({ phase: 'blocked', mode: 'memory' })],
+    ['receiver receiving', receiver({ phase: 'receiving', savedBytes: 10 })],
+    ['receiver done', receiver({ phase: 'done', savedBytes: meta.size })],
+    ['receiver canceled', receiver({ phase: 'canceled' })],
+    ['receiver failed', receiver({ phase: 'failed', reason: 'SENDER_LEFT' })],
+    ['receiver error', receiver({ phase: 'error', reason: 'ROOM_FULL' })],
+  ])('%s centers its title block', (_name, view) => {
+    render(view);
+    const title = screen.getByRole('heading', { level: 1 });
+    const block = title.closest('.heading-center');
+    expect(block).not.toBeNull();
+    // every subtitle that belongs to the title sits in the same centered block
+    for (const sub of document.querySelectorAll('.sub')) expect(block).toContainElement(sub as HTMLElement);
+  });
+});
+
+describe('receiver names', () => {
+  const noop = () => {};
+
+  it('shows each receiver with a Lucide fish icon in front of the name', () => {
+    const state = senderState({
+      connectedCount: 2,
+      peers: [
+        peerView({ label: '파라리크티스 올리바케우스' }),
+        peerView({ id: 'b'.repeat(16), label: '세바스테스 슈레겔리', phase: 'connecting' }),
+      ],
+    });
+    const { container } = render(<SenderView state={state} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    const names = [...container.querySelectorAll('.peer-name')];
+    expect(names.map((el) => el.textContent)).toEqual(['파라리크티스 올리바케우스', '세바스테스 슈레겔리']);
+    for (const name of names) {
+      const icon = name.querySelector('svg.lucide-fish');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
+      expect(name.firstElementChild).toBe(icon);
+    }
+    expect(screen.getByRole('progressbar', { name: '파라리크티스 올리바케우스 진행률' })).toBeInTheDocument();
   });
 });

@@ -1,8 +1,9 @@
+import { Fish } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { formatBytes, formatCode, formatCountdown, formatSpeed } from '../lib/format';
 import { describeSenderClosed, describeSenderPeer } from '../lib/messages';
 import { isPeerActive, type SenderPeerView, type SenderState } from '../lib/senderSession';
-import { Button, FileCard, Heading, ProgressBar, percentOf } from './ui';
+import { Button, FileCard, PrivacyNote, ProgressBar, TitleBlock, percentOf } from './ui';
 
 interface SenderViewProps {
   state: SenderState;
@@ -19,7 +20,10 @@ function PeerRow({ peer, hasTurn }: { peer: SenderPeerView; hasTurn: boolean }) 
   return (
     <li className="peer">
       <div className="peer-head">
-        <span className="peer-name">{peer.label}</span>
+        <span className="peer-name">
+          <Fish size={16} aria-hidden="true" />
+          {peer.label}
+        </span>
         <span className="peer-status">{describeSenderPeer(peer, hasTurn)}</span>
       </div>
       {showProgress && (
@@ -81,7 +85,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
   if (state.phase === 'starting') {
     return (
       <section className="card stack">
-        <Heading>잠시만 기다려주세요</Heading>
+        <TitleBlock title="잠시만 기다려주세요" />
         <p className="status" role="status">
           <span className="spinner spinner-dark" aria-hidden="true" />
           코드를 만들고 있어요
@@ -97,10 +101,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
   if (state.phase === 'error') {
     return (
       <section className="card stack">
-        <div>
-          <Heading>서버에 연결하지 못했어요</Heading>
-          <p className="sub">인터넷 연결을 확인하고 다시 시도해주세요.</p>
-        </div>
+        <TitleBlock title="서버에 연결하지 못했어요" sub="인터넷 연결을 확인하고 다시 시도해주세요." />
         {fileCard}
         <Button onClick={onRenew}>다시 시도하기</Button>
         <Button variant="text" onClick={onLeave}>
@@ -114,10 +115,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
     const message = describeSenderClosed(state.reason);
     return (
       <section className="card stack">
-        <div>
-          <Heading>{message.title}</Heading>
-          <p className="sub">{message.body}</p>
-        </div>
+        <TitleBlock title={message.title} sub={message.body} />
         {fileCard}
         {peerList}
         <Button onClick={onRenew}>새 코드 만들기</Button>
@@ -136,19 +134,16 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
   return (
     <section className="card stack">
       {expired ? (
-        <div className="heading-center">
-          <Heading>코드가 만료됐어요</Heading>
-          <p className="sub">
-            {idle
+        <TitleBlock
+          title="코드가 만료됐어요"
+          sub={
+            idle
               ? '새로운 사람은 더 들어올 수 없어요. 새 코드를 만들어 다시 시작할 수 있어요.'
-              : '새로운 사람은 더 들어올 수 없어요. 진행 중인 전송은 계속돼요.'}
-          </p>
-        </div>
+              : '새로운 사람은 더 들어올 수 없어요. 진행 중인 전송은 계속돼요.'
+          }
+        />
       ) : (
-        <div className="heading-center">
-          <Heading>코드를 알려주세요</Heading>
-          <p className="sub">받는 사람이 이 코드를 입력하면 연결돼요.</p>
-        </div>
+        <TitleBlock title="코드를 알려주세요" sub="받는 사람이 이 코드를 입력하면 연결돼요." />
       )}
 
       {!expired && (
@@ -175,6 +170,8 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
 
       {fileCard}
       {peerList}
+
+      <PrivacyNote />
 
       <Button variant="text" onClick={onLeave}>
         전송 끝내기

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { CODE_PATTERN } from '../../shared/protocol';
 import { formatCode } from '../lib/format';
 import type { Message } from '../lib/messages';
-import { Alert, Button, Heading } from './ui';
+import { Alert, Button, TitleBlock } from './ui';
 
 interface CodeEntryViewProps {
   onSubmit(code: string): void;
@@ -23,10 +23,7 @@ export function CodeEntryView({ onSubmit, onOpenHome, error, busy = false, initi
 
   return (
     <section className="card stack">
-      <div>
-        <Heading focusOnMount={false}>전송 코드를 입력해주세요</Heading>
-        <p className="sub">보내는 사람이 알려준 6자리 코드예요.</p>
-      </div>
+      <TitleBlock title="전송 코드를 입력해주세요" sub="보내는 사람이 알려준 6자리 코드예요." focusOnMount={false} />
 
       <form className="stack" onSubmit={handleSubmit}>
         <label className="sr-only" htmlFor="transfer-code-input">
