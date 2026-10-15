@@ -15,7 +15,7 @@ export interface Message {
 export function describeJoinError(code: string | undefined): Message {
   switch (code) {
     case 'ROOM_NOT_FOUND':
-      return { title: '없는 코드예요', body: '숫자를 다시 확인해주세요. 보내는 사람이 창을 닫았다면 코드도 함께 사라져요.' };
+      return { title: '없는 코드예요', body: '숫자를 다시 확인해주세요\n보내는 사람이 창을 닫았다면 코드도 함께 사라져요' };
     case 'ROOM_EXPIRED':
       return {
         title: '코드가 만료됐어요',

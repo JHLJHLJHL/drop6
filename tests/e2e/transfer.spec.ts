@@ -179,6 +179,8 @@ test('a wrong code is explained', async ({ browser }) => {
   const receiver = await context.newPage();
   await enterCode(receiver, '000000');
   await expect(receiver.getByRole('heading', { name: '없는 코드예요' })).toBeVisible();
+  // two lines, no trailing periods
+  expect(await receiver.locator('.sub').innerText()).toBe('숫자를 다시 확인해주세요\n보내는 사람이 창을 닫았다면 코드도 함께 사라져요');
   await receiver.getByRole('button', { name: '코드 다시 입력하기' }).click();
   await expect(receiver.getByRole('heading', { name: '전송 코드를 입력해주세요' })).toBeVisible();
   await context.close();

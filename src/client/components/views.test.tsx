@@ -482,3 +482,65 @@ describe('several files', () => {
     expect(onLeave).toHaveBeenCalled();
   });
 });
+
+describe('message to hand over', () => {
+  const noop = () => {};
+  const messageFor = (code: string) => `${window.location.origin} 에 접속해 파일을 받으세요.\n코드는 ${code} 입니다.`;
+
+  function mockClipboard(writeText = vi.fn().mockResolvedValue(undefined)) {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    return writeText;
+  }
+
+  it('shows a ready-to-send message with the site address and the plain 6-digit code', () => {
+    render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.getByText('메시지 전달하기')).toBeInTheDocument();
+    expect(screen.getByTestId('share-message').textContent).toBe(messageFor('482913'));
+  });
+
+  it('puts the section right under the 코드 복사하기 button, before the headcount', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    const copyCode = screen.getByRole('button', { name: '코드 복사하기' });
+    const section = screen.getByText('메시지 전달하기');
+    const headcount = screen.getByText('0 / 3명');
+    expect(copyCode.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.compareDocumentPosition(headcount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('copies the whole message, line break included, and confirms on that button only', async () => {
+    const writeText = mockClipboard();
+    render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    await userEvent.click(screen.getByRole('button', { name: '메시지 복사하기' }));
+    expect(writeText).toHaveBeenCalledWith(messageFor('482913'));
+    expect(await screen.findByRole('button', { name: '복사했어요' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '코드 복사하기' })).toBeInTheDocument(); // the other one is untouched
+    expect(screen.getAllByRole('button', { name: '복사했어요' })).toHaveLength(1);
+  });
+
+  it('the code button still copies only the code', async () => {
+    const writeText = mockClipboard();
+    render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    await userEvent.click(screen.getByRole('button', { name: '코드 복사하기' }));
+    expect(writeText).toHaveBeenCalledWith('482913');
+    expect(screen.getByRole('button', { name: '메시지 복사하기' })).toBeInTheDocument();
+  });
+
+  it('asks to select the message by hand when copying is not allowed', async () => {
+    mockClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    await userEvent.click(screen.getByRole('button', { name: '메시지 복사하기' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 직접 선택해서 복사해주세요');
+  });
+
+  it('keeps the message copy secondary, so 코드 복사하기 stays the one main action', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.getByRole('button', { name: '메시지 복사하기' })).toHaveClass('btn-secondary');
+    expect(screen.getByRole('button', { name: '코드 복사하기' })).toHaveClass('btn-primary');
+  });
+
+  it('is gone once the code expired (it would hand out a dead code)', () => {
+    render(<SenderView state={senderState()} now={1_000_000 + 31 * MIN} onLeave={noop} onRenew={noop} />);
+    expect(screen.queryByText('메시지 전달하기')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('share-message')).not.toBeInTheDocument();
+  });
+});

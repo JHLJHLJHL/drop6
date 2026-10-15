@@ -276,6 +276,32 @@ p {
   text-align: center;
 }
 
+.share {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.share .section-label {
+  margin-bottom: 0;
+}
+
+/* The ready-to-send message: shown as it will be pasted, two lines. */
+.message-box {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--grey-900);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  white-space: pre-line;
+  word-break: keep-all; /* wrap Korean at spaces, not inside a word */
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .notes {
   display: flex;
   flex-direction: column;

@@ -39,7 +39,17 @@ function PeerRow({ peer, hasTurn }: { peer: SenderPeerView; hasTurn: boolean }) 
   );
 }
 
-function CopyButton({ code }: { code: string }) {
+function CopyButton({
+  text,
+  label,
+  failureHint,
+  variant = 'primary',
+}: {
+  text: string;
+  label: string;
+  failureHint: string;
+  variant?: 'primary' | 'secondary';
+}) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -47,7 +57,7 @@ function CopyButton({ code }: { code: string }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await navigator.clipboard.writeText(text);
       setFailed(false);
       setCopied(true);
       clearTimeout(timer.current);
@@ -59,13 +69,33 @@ function CopyButton({ code }: { code: string }) {
 
   return (
     <>
-      <Button onClick={() => void copy()}>{copied ? '복사했어요' : '코드 복사하기'}</Button>
+      <Button variant={variant} onClick={() => void copy()}>
+        {copied ? '복사했어요' : label}
+      </Button>
       {failed && (
         <p className="error-text" role="alert">
-          복사하지 못했어요. 코드를 직접 선택해서 복사해주세요.
+          {failureHint}
         </p>
       )}
     </>
+  );
+}
+
+/** The message a sender can paste into a chat: where to go and which code to type. */
+export function shareMessage(origin: string, code: string): string {
+  return `${origin} 에 접속해 파일을 받으세요.\n코드는 ${code} 입니다.`;
+}
+
+function ShareMessage({ code }: { code: string }) {
+  const message = shareMessage(window.location.origin, code);
+  return (
+    <div className="share">
+      <p className="section-label">메시지 전달하기</p>
+      <p className="message-box" data-testid="share-message">
+        {message}
+      </p>
+      <CopyButton text={message} label="메시지 복사하기" variant="secondary" failureHint="복사하지 못했어요. 메시지를 직접 선택해서 복사해주세요." />
+    </div>
   );
 }
 
@@ -179,7 +209,8 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
           <p className="code" data-testid="transfer-code" aria-label={`전송 코드 ${code.split('').join(' ')}`}>
             {formatCode(code)}
           </p>
-          <CopyButton code={code} />
+          <CopyButton text={code} label="코드 복사하기" failureHint="복사하지 못했어요. 코드를 직접 선택해서 복사해주세요." />
+          <ShareMessage code={code} />
         </>
       )}
 

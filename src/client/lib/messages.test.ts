@@ -37,6 +37,13 @@ describe('describeJoinError', () => {
     expect(describeJoinError('ROOM_FULL').body).toContain('3명');
   });
 
+  it('says a wrong code on two lines without trailing periods', () => {
+    expect(describeJoinError('ROOM_NOT_FOUND')).toEqual({
+      title: '없는 코드예요',
+      body: '숫자를 다시 확인해주세요\n보내는 사람이 창을 닫았다면 코드도 함께 사라져요',
+    });
+  });
+
   it('falls back to a generic message for unknown codes', () => {
     expect(describeJoinError('SOMETHING_NEW').title).toBe('연결하지 못했어요');
   });
