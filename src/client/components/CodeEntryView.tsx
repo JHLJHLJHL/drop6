@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CODE_PATTERN } from '../../shared/protocol';
+import { isTouchDevice } from '../lib/device';
 import { formatCode } from '../lib/format';
 import type { Message } from '../lib/messages';
 import { Alert, Button, TitleBlock } from './ui';
@@ -14,6 +15,13 @@ interface CodeEntryViewProps {
 export function CodeEntryView({ onSubmit, error, busy = false, initialCode = '' }: CodeEntryViewProps) {
   const [digits, setDigits] = useState(initialCode.replace(/\D/g, '').slice(0, 6));
   const valid = CODE_PATTERN.test(digits);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Desktop: ready to type right away. Touch devices: leave focus alone, otherwise the keyboard
+  // pops up and iOS Safari scrolls the page. The autofocus attribute would scroll on desktop too.
+  useEffect(() => {
+    if (!isTouchDevice()) inputRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -29,11 +37,11 @@ export function CodeEntryView({ onSubmit, error, busy = false, initialCode = '' 
           전송 코드
         </label>
         <input
+          ref={inputRef}
           id="transfer-code-input"
           className="code-input"
           inputMode="numeric"
           autoComplete="one-time-code"
-          autoFocus
           placeholder="000 000"
           aria-invalid={error ? true : undefined}
           value={formatCode(digits)}
@@ -44,7 +52,6 @@ export function CodeEntryView({ onSubmit, error, busy = false, initialCode = '' 
           {busy ? '연결하는 중이에요' : '연결하기'}
         </Button>
       </form>
-
     </section>
   );
 }
