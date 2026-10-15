@@ -17,6 +17,13 @@ test('the email is plain text that only gets an underline on hover (no box)', as
   await expect(email).toHaveCSS('box-shadow', 'none');
 });
 
+test('the browser tab is named DROP6 - 심플한 파일 전송 on both sides', async ({ page }) => {
+  await page.goto('/');
+  await expect(page).toHaveTitle('DROP6 - 심플한 파일 전송');
+  await page.goto('/receive');
+  await expect(page).toHaveTitle('DROP6 - 심플한 파일 전송');
+});
+
 test('the footer font is 1px bigger than before', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.app-footer')).toHaveCSS('font-size', '13px'); // was 12px
