@@ -7,7 +7,8 @@ import { ModeToggle } from './components/ModeToggle';
 import { ReceiverScreen } from './components/ReceiverScreen';
 import { SenderScreen } from './components/SenderScreen';
 import { confirmLeave } from './lib/leaveGuard';
-import { navigate, useRoute, type Route } from './route';
+import { readCodeFromHash } from './lib/deepLink';
+import { currentRoute, navigate, useRoute, type Route } from './route';
 
 const OWNER_NAME = 'LJH2026';
 const CONTACT_EMAIL = 'honeymath.gbe@gmail.com';
@@ -15,7 +16,15 @@ const CONTACT_EMAIL = 'honeymath.gbe@gmail.com';
 export function App() {
   const route = useRoute();
   const [files, setFiles] = useState<File[] | null>(null);
-  const [code, setCode] = useState<string | null>(null);
+  // A receive link (the QR code) carries the code in its fragment: connect right away.
+  const [code, setCode] = useState<string | null>(() =>
+    currentRoute() === 'receive' ? (readCodeFromHash(window.location.hash) ?? null) : null,
+  );
+
+  // Once read, take the code out of the address bar so it is not left in the URL or history.
+  useEffect(() => {
+    if (readCodeFromHash(window.location.hash)) window.history.replaceState(null, '', window.location.pathname);
+  }, []);
 
   // Leaving a screen ends its session, so forget what it was working on.
   useEffect(() => {

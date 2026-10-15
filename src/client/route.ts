@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 export type Route = 'home' | 'receive';
 
-function currentRoute(): Route {
+export function currentRoute(): Route {
   return window.location.pathname.replace(/\/+$/, '') === '/receive' ? 'receive' : 'home';
 }
 

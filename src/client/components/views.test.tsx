@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import jsQR from 'jsqr';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { QUIET_ZONE } from '../lib/qr';
+import { matrixFromPath, rasterizeMatrix } from '../lib/qrTestUtils';
 import type { ReceiverState } from '../lib/receiverSession';
 import type { SenderPeerView, SenderState } from '../lib/senderSession';
 import { CodeEntryView } from './CodeEntryView';
@@ -142,10 +145,10 @@ const peerView = (patch: Partial<SenderPeerView>): SenderPeerView => ({
 describe('SenderView', () => {
   const noop = () => {};
 
-  it('shows the countdown and the 0 / 3 headcount, with the code only inside the message', () => {
+  it('shows the big code, the countdown and the 0 / 3 headcount', () => {
     render(<SenderView state={senderState()} now={1_000_000 + 5 * MIN} onLeave={noop} onRenew={noop} />);
     expect(screen.getByRole('heading', { name: '코드를 알려주세요' })).toBeInTheDocument();
-    expect(screen.getByTestId('share-message')).toHaveTextContent('코드는 123456 입니다.');
+    expect(screen.getByTestId('transfer-code')).toHaveTextContent('123 456');
     expect(screen.getByRole('timer')).toHaveTextContent('25:00');
     expect(screen.getByText('0 / 3명')).toBeInTheDocument();
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
@@ -157,12 +160,14 @@ describe('SenderView', () => {
     expect(screen.getByRole('timer').closest('.countdown')).not.toBeNull();
   });
 
-  it('no longer shows the code on its own, nor a button to copy only the code', () => {
-    const { container } = render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    expect(screen.queryByTestId('transfer-code')).not.toBeInTheDocument();
-    expect(container.querySelector('.code')).toBeNull();
+  it('shows the code large, as plain digits for screen readers, and has no button just for the code', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    const code = screen.getByTestId('transfer-code');
+    expect(code).toHaveClass('code');
+    expect(code).toHaveAttribute('aria-label', '전송 코드 1 2 3 4 5 6');
+    // a paragraph cannot carry a name, so the digits are read as one labeled figure
+    expect(screen.getByRole('img', { name: '전송 코드 1 2 3 4 5 6' })).toBe(code);
     expect(screen.queryByRole('button', { name: '코드 복사하기' })).not.toBeInTheDocument();
-    expect(screen.queryByText('123 456')).not.toBeInTheDocument();
   });
 
   it('shows each receiver with ACK-based progress', () => {
@@ -491,47 +496,102 @@ describe('message to hand over', () => {
     return writeText;
   }
 
-  it('shows a ready-to-send message with the site address and the plain 6-digit code', () => {
-    render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+  const renderSender = (code = '123456', now = 1_000_000) =>
+    render(<SenderView state={senderState({ code })} now={now} onLeave={noop} onRenew={noop} />);
+
+  it('is titled with a hint about copying or scanning the QR code', () => {
+    const { container } = renderSender();
     expect(screen.getByText('메시지 전달하기')).toBeInTheDocument();
+    expect(container.querySelector('.section-label')?.textContent).toBe('메시지 전달하기(복사해 사용하거나 QR코드를 촬영하세요)');
+  });
+
+  it('shows a ready-to-send message with the site address, the plain 6-digit code and the emoji', () => {
+    renderSender('482913');
     expect(screen.getByTestId('share-message').textContent).toBe(messageFor('482913'));
   });
 
-  it('comes right after the title and before the headcount', () => {
-    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    const title = screen.getByRole('heading', { name: '코드를 알려주세요' });
-    const section = screen.getByText('메시지 전달하기');
-    const headcount = screen.getByText('0 / 3명');
-    expect(title.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(section.compareDocumentPosition(headcount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it('comes after the title and the big code, and before the headcount', () => {
+    renderSender();
+    const order = [
+      screen.getByRole('heading', { name: '코드를 알려주세요' }),
+      screen.getByTestId('transfer-code'),
+      screen.getByText('메시지 전달하기'),
+      screen.getByText('0 / 3명'),
+    ];
+    for (let i = 0; i < order.length - 1; i += 1) {
+      expect(order[i]!.compareDocumentPosition(order[i + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
-  it('copies the whole message, line break included, and confirms on the button', async () => {
+  it('has no text button for copying; a copy icon sits inside the message box', () => {
+    const { container } = renderSender();
+    expect(screen.queryByText('메시지 복사하기')).not.toBeInTheDocument();
+    const copy = screen.getByRole('button', { name: '메시지 복사하기' });
+    expect(copy).not.toHaveClass('btn');
+    expect(copy.closest('.message-box')).not.toBeNull();
+    expect(copy.querySelector('svg.lucide-copy')).not.toBeNull();
+    expect(container.querySelector('.share .btn')).toBeNull();
+  });
+
+  it('copies the whole message, line break included, and shows a check mark', async () => {
     const writeText = mockClipboard();
-    render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    renderSender('482913');
     await userEvent.click(screen.getByRole('button', { name: '메시지 복사하기' }));
     expect(writeText).toHaveBeenCalledWith(messageFor('482913'));
-    expect(await screen.findByRole('button', { name: '복사했어요' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: '복사했어요' })).toHaveLength(1);
+    const done = await screen.findByRole('button', { name: '복사했어요' });
+    expect(done.querySelector('svg.lucide-check')).not.toBeNull();
+    expect(done.querySelector('svg.lucide-copy')).toBeNull();
+  });
+
+  it('goes back to the copy icon after a moment', async () => {
+    mockClipboard();
+    vi.useFakeTimers();
+    try {
+      renderSender();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '메시지 복사하기' }));
+      });
+      expect(screen.getByRole('button', { name: '복사했어요' })).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(2_100);
+      });
+      expect(screen.getByRole('button', { name: '메시지 복사하기' }).querySelector('svg.lucide-copy')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('asks to select the message by hand when copying is not allowed', async () => {
     mockClipboard(vi.fn().mockRejectedValue(new Error('denied')));
-    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    renderSender();
     await userEvent.click(screen.getByRole('button', { name: '메시지 복사하기' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 직접 선택해서 복사해주세요');
   });
 
-  it('is the one main action of the screen now that the code has no button of its own', () => {
-    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    const copy = screen.getByRole('button', { name: '메시지 복사하기' });
-    expect(copy).toHaveClass('btn-primary');
-    expect(copy).not.toHaveClass('btn-secondary');
+  it('puts a square QR code to the right of the message box', () => {
+    const { container } = renderSender();
+    const row = container.querySelector('.share-row')!;
+    const box = row.querySelector('.message-box')!;
+    const qr = within(row as HTMLElement).getByRole('img', { name: /QR 코드/ });
+    expect(box.compareDocumentPosition(qr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const [, , w, h] = qr.getAttribute('viewBox')!.split(' ').map(Number);
+    expect(w).toBe(h); // square
+  });
+
+  it('the QR code opens the receive screen with the code already filled in', () => {
+    renderSender('482913');
+    const qr = screen.getByRole('img', { name: /QR 코드/ });
+    const moduleCount = Number(qr.getAttribute('viewBox')!.split(' ')[2]) - QUIET_ZONE * 2;
+    const matrix = matrixFromPath(qr.querySelector('path')!.getAttribute('d')!, moduleCount);
+    const { data, width } = rasterizeMatrix(matrix);
+    expect(jsQR(data, width, width)?.data).toBe(`${window.location.origin}/receive#code=482913`);
   });
 
   it('is gone once the code expired (it would hand out a dead code)', () => {
-    render(<SenderView state={senderState()} now={1_000_000 + 31 * MIN} onLeave={noop} onRenew={noop} />);
+    renderSender('123456', 1_000_000 + 31 * MIN);
     expect(screen.queryByText('메시지 전달하기')).not.toBeInTheDocument();
     expect(screen.queryByTestId('share-message')).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /QR 코드/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transfer-code')).not.toBeInTheDocument();
   });
 });

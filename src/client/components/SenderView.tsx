@@ -1,8 +1,10 @@
-import { Fish } from 'lucide-react';
+import { Check, Copy, Fish } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { formatBytes, formatCountdown, formatSpeed } from '../lib/format';
+import { receiveLink } from '../lib/deepLink';
+import { formatBytes, formatCode, formatCountdown, formatSpeed } from '../lib/format';
 import { describeBundleError, describeSenderClosed, describeSenderPeer } from '../lib/messages';
 import { isPeerActive, type SenderPeerView, type SenderState } from '../lib/senderSession';
+import { QrCode } from './QrCode';
 import { Button, FileCard, PrivacyNote, ProgressBar, TitleBlock, percentOf } from './ui';
 
 interface SenderViewProps {
@@ -39,7 +41,8 @@ function PeerRow({ peer, hasTurn }: { peer: SenderPeerView; hasTurn: boolean }) 
   );
 }
 
-function CopyButton({ text, label, failureHint }: { text: string; label: string; failureHint: string }) {
+/** Copies text to the clipboard; `copied` stays true for a moment so the button can show a check mark. */
+function useCopy(text: string) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -56,35 +59,46 @@ function CopyButton({ text, label, failureHint }: { text: string; label: string;
       setFailed(true);
     }
   };
-
-  return (
-    <>
-      <Button onClick={() => void copy()}>
-        {copied ? '복사했어요' : label}
-      </Button>
-      {failed && (
-        <p className="error-text" role="alert">
-          {failureHint}
-        </p>
-      )}
-    </>
-  );
+  return { copied, failed, copy };
 }
 
 /** The message a sender can paste into a chat: where to go and which code to type. */
 export function shareMessage(origin: string, code: string): string {
-  return `${origin} 에 접속해 파일을 다운로드 하세요.\n코드는 ${code} 입니다.😊`;
+  return `${origin} 에 접속해 파일을 다운로드 하세요.
+코드는 ${code} 입니다.😊`;
 }
 
 function ShareMessage({ code }: { code: string }) {
-  const message = shareMessage(window.location.origin, code);
+  const { origin } = window.location;
+  const message = shareMessage(origin, code);
+  const { copied, failed, copy } = useCopy(message);
+
   return (
     <div className="share">
-      <p className="section-label">메시지 전달하기</p>
-      <p className="message-box" data-testid="share-message">
-        {message}
+      <p className="section-label">
+        메시지 전달하기<span className="section-hint">(복사해 사용하거나 QR코드를 촬영하세요)</span>
       </p>
-      <CopyButton text={message} label="메시지 복사하기" failureHint="복사하지 못했어요. 메시지를 직접 선택해서 복사해주세요." />
+      <div className="share-row">
+        <div className="message-box">
+          <button
+            type="button"
+            className={`copy-icon${copied ? ' is-copied' : ''}`}
+            aria-label={copied ? '복사했어요' : '메시지 복사하기'}
+            onClick={() => void copy()}
+          >
+            {copied ? <Check size={18} strokeWidth={2.75} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+          </button>
+          <p className="message-text" data-testid="share-message">
+            {message}
+          </p>
+        </div>
+        <QrCode value={receiveLink(origin, code)} />
+      </div>
+      {failed && (
+        <p className="error-text" role="alert">
+          복사하지 못했어요. 메시지를 직접 선택해서 복사해주세요.
+        </p>
+      )}
     </div>
   );
 }
@@ -194,7 +208,14 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
         <TitleBlock title="코드를 알려주세요" sub="받는 사람이 이 코드를 입력하면 연결돼요" />
       )}
 
-      {!expired && <ShareMessage code={code} />}
+      {!expired && (
+        <>
+          <p className="code" data-testid="transfer-code" role="img" aria-label={`전송 코드 ${code.split('').join(' ')}`}>
+            {formatCode(code)}
+          </p>
+          <ShareMessage code={code} />
+        </>
+      )}
 
       {expired && idle && <Button onClick={onRenew}>새 코드 만들기</Button>}
 
