@@ -1,0 +1,28 @@
+# dependencies & build output
+node_modules/
+dist/
+coverage/
+
+# test output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# secrets & local credentials (.env.example is the only committed env file)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+turn-credentials*
+.render/
+
+# misc
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
