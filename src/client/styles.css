@@ -176,7 +176,7 @@ p {
 
 .app-main {
   flex: 1;
-  padding-top: 8px;
+  padding-top: calc(8px * 1.4); /* gap under the send/receive toggle, 40% wider than the old 8px */
   padding-bottom: 24px;
 }
 

@@ -62,6 +62,23 @@ test('the header only holds the title now, and the email keeps a 44px touch targ
   expect(email.y + email.height).toBeLessThanOrEqual(footer.y + footer.height + 1);
 });
 
+for (const viewport of [
+  { name: 'desktop', width: 1280, height: 720 },
+  { name: '360px', width: 360, height: 740 },
+]) {
+  test(`the gap between the toggle and the card is 40% wider: 8px to 11.2px (${viewport.name})`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    for (const route of ['/', '/receive']) {
+      await page.goto(route);
+      const toggle = (await page.locator('.toggle').boundingBox())!;
+      const card = (await page.locator('.card').boundingBox())!;
+      const gap = card.y - (toggle.y + toggle.height);
+      expect(gap).toBeGreaterThan(11.2 - 0.3);
+      expect(gap).toBeLessThan(11.2 + 0.3);
+    }
+  });
+}
+
 test('line breaks in a message are shown as line breaks', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.sub')).toHaveCSS('white-space', 'pre-line');
