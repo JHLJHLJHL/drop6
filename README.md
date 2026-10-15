@@ -137,6 +137,16 @@ push하면 `.github/workflows/ci.yml`이 자동으로 실행돼요
 플랜과 무료 플랜의 제약은 바뀔 수 있어요. 무료 Web Service는 한동안 요청이 없으면 잠들고, 그러면 열려 있던 방이 모두 사라져요.
 사용하는 동안 안정적으로 쓰려면 항상 켜져 있는 유료 플랜을 고르세요.
 
+### 무료 플랜을 깨워 두기
+
+`.github/workflows/keep-awake.yml`이 5분마다 서비스의 `/health`를 불러서 잠들지 않게 해요.
+저장소의 **Settings > Secrets and variables > Actions > Variables**에 `RENDER_URL`(예: `https://drop6.onrender.com`)을 넣으면 켜지고,
+비워두면 아무것도 하지 않아요. **Actions** 탭에서 `Keep Render awake`를 직접 실행해 확인할 수 있어요.
+
+- GitHub의 예약 실행은 정확한 시각을 보장하지 않아서 몇 분 늦게 돌 수 있어요. 가끔 잠드는 건 막지 못해요.
+- 공개 저장소는 60일 동안 활동이 없으면 예약 실행이 자동으로 꺼져요. Actions 탭에서 다시 켜면 돼요.
+- 24시간 켜 두면 한 달에 약 744시간이라, Render 무료 플랜의 월 사용 시간 한도(750시간)에 거의 다 차요. 이 계정에서 무료 서비스는 이것 하나만 두세요.
+
 ## ICE_SERVERS_JSON 설정
 
 WebRTC 연결에 쓸 STUN/TURN 서버를 JSON 배열로 넣어요. (`.env.example` 참고)

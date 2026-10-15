@@ -1,0 +1,29 @@
+name: Keep Render awake
+
+# Render's free web services spin down after a while without requests, which drops every open
+# room. Calling /health every few minutes keeps the service up.
+# Switched on by the repository variable RENDER_URL (Settings > Secrets and variables > Actions >
+# Variables), e.g. https://drop6.onrender.com. Without it this workflow does nothing.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    name: Call /health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ vars.RENDER_URL != '' }}
+    steps:
+      - name: Call /health
+        env:
+          RENDER_URL: ${{ vars.RENDER_URL }}
+        # A sleeping service needs up to a minute to wake, so wait long and retry.
+        run: |
+          curl --fail --silent --show-error \
+            --max-time 60 --retry 3 --retry-delay 10 --retry-all-errors \
+            "${RENDER_URL%/}/health"
