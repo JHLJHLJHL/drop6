@@ -18,6 +18,12 @@ services:
       # TURN/STUN servers as JSON (see README). Entered in the dashboard; never commit it.
       - key: ICE_SERVERS_JSON
         sync: false
+      # Cloudflare Realtime TURN (optional, see README): the server turns these into short-lived
+      # TURN credentials. Set both in the dashboard; never commit them.
+      - key: CLOUDFLARE_TURN_KEY_ID
+        sync: false
+      - key: CLOUDFLARE_TURN_API_TOKEN
+        sync: false
       # One reverse proxy (Render's load balancer) sits in front of the app.
       - key: TRUST_PROXY_HOPS
         value: "1"

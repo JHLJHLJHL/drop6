@@ -163,6 +163,25 @@ WebRTC 연결에 쓸 STUN/TURN 서버를 JSON 배열로 넣어요. (`.env.exampl
 - 파일은 항상 DTLS로 암호화돼 전송돼요. TURN을 거쳐도 중계 서버는 내용을 읽을 수 없고 저장하지 않아요.
 - 그래서 DROP6는 "항상 직접 연결"이라고 말하지 않아요. 상황에 따라 TURN 릴레이를 쓸 수 있어요.
 
+### 가장 쉬운 TURN 설정: Cloudflare Realtime TURN
+
+월 1,000GB까지 무료인 [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/)을 바로 쓸 수 있어요.
+Cloudflare가 주는 키는 서버에만 두고, 서버가 방문자마다 **짧게 유효한 TURN 자격정보**를 만들어 `/api/config`로 내려줘요.
+(`ICE_SERVERS_JSON`처럼 고정 비밀번호가 브라우저에 노출되지 않아요.)
+
+1. Cloudflare 대시보드의 **Realtime**(Calls) 메뉴에서 **TURN Server**를 만들어요.
+2. 만들어진 **TURN Token ID**와 **API Token**을 복사해요.
+3. Render의 서비스 **Environment**에 아래 두 값을 넣고 저장해요. 저장하면 자동으로 다시 배포돼요.
+   - `CLOUDFLARE_TURN_KEY_ID` = TURN Token ID
+   - `CLOUDFLARE_TURN_API_TOKEN` = API Token
+4. 배포가 끝나면 `https://<서비스 주소>/api/config`를 열어 `turn:`/`turns:` 주소와 `username`, `credential`이 보이는지 확인해요.
+
+- 두 값은 **함께** 설정해야 해요. 하나만 있으면 서버가 시작하지 않아요.
+- `ICE_SERVERS_JSON`과 같이 쓰면 두 쪽의 서버가 모두 전달돼요.
+- Cloudflare가 응답하지 않거나 키가 잘못돼도 서비스는 계속 동작해요. 이때는 TURN 없이 STUN만 쓰고, 로그에 `turn_credentials_failed`와 상태 코드만 남아요.
+- 자격정보는 24시간 유효하고 서버가 12시간마다 새로 만들어요. 키, 토큰, 만든 자격정보는 로그에 남기지 않아요.
+- 다른 TURN 서비스를 쓰려면 앞의 `ICE_SERVERS_JSON`에 그 서비스의 주소와 자격정보를 넣으면 돼요.
+
 ## HTTPS/WSS 요구사항
 
 - 브라우저는 보안 컨텍스트(`https://` 또는 `localhost`)에서만 File System Access API와 클립보드 복사를 허용해요.
@@ -231,6 +250,8 @@ WebRTC 연결에 쓸 STUN/TURN 서버를 JSON 배열로 넣어요. (`.env.exampl
 | `HOST` | `0.0.0.0` | 바인딩 주소 |
 | `NODE_ENV` | `development` | `production`에서 실행, `test`에서만 테스트용 시계 제어 활성화 |
 | `ICE_SERVERS_JSON` | 공개 STUN 1개 | ICE 서버 JSON 배열 |
+| `CLOUDFLARE_TURN_KEY_ID` | 없음 | Cloudflare TURN Token ID (`CLOUDFLARE_TURN_API_TOKEN`과 함께 설정) |
+| `CLOUDFLARE_TURN_API_TOKEN` | 없음 | Cloudflare TURN API Token. 서버가 방문자마다 짧은 TURN 자격정보를 만들 때만 써요 |
 | `TRUST_PROXY_HOPS` | `0` | 앞단 프록시 개수. 0이면 소켓 IP, 1 이상이면 `X-Forwarded-For`의 오른쪽에서 N번째 값을 접속 시도 제한 키로 사용 |
 | `STATIC_DIR` | `dist/client` | 프런트엔드 정적 파일 위치 |
 

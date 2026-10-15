@@ -88,6 +88,31 @@ describe('HTTP', () => {
     expect(await res.json()).toEqual({ iceServers: ICE });
   });
 
+  it('asks the ICE provider on every /api/config request (short-lived TURN credentials)', async () => {
+    let calls = 0;
+    const getIceServers = async () => {
+      calls += 1;
+      return [{ urls: ['turn:turn.example.com:3478'], username: `user-${calls}`, credential: 'c' }];
+    };
+    const { http } = await start({ getIceServers });
+    const first = await (await fetch(`${http}/api/config`)).json();
+    const second = await (await fetch(`${http}/api/config`)).json();
+    expect(first).toEqual({ iceServers: [{ urls: ['turn:turn.example.com:3478'], username: 'user-1', credential: 'c' }] });
+    expect(second.iceServers[0].username).toBe('user-2');
+  });
+
+  it('still answers /api/config when the ICE provider fails, with a generic error and no details', async () => {
+    const getIceServers = async () => {
+      throw new Error('token abc123 rejected');
+    };
+    const { http } = await start({ getIceServers });
+    const res = await fetch(`${http}/api/config`);
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(body).toBe('{"error":"INTERNAL"}');
+    expect(body).not.toContain('abc123');
+  });
+
   it('serves index.html at / and for unknown extension-less paths (SPA refresh)', async () => {
     const { http } = await start();
     for (const route of ['/', '/receive', '/some/deep/route']) {

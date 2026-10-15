@@ -12,7 +12,8 @@ export interface TestControls {
 }
 
 export interface HttpHandlerOptions {
-  iceServers: IceServerConfig[];
+  /** Called for every GET /api/config, so credentials can be generated fresh (and cached) by the provider. */
+  getIceServers(): Promise<IceServerConfig[]>;
   staticDir: string;
   testControls?: TestControls | undefined;
   logger: Logger;
@@ -150,7 +151,7 @@ async function handleTestRoute(
 }
 
 export function createHttpHandler(options: HttpHandlerOptions): RequestListener {
-  const { iceServers, staticDir, testControls, logger } = options;
+  const { getIceServers, staticDir, testControls, logger } = options;
 
   return (req, res) => {
     void (async () => {
@@ -170,7 +171,7 @@ export function createHttpHandler(options: HttpHandlerOptions): RequestListener 
         return;
       }
       if (readOnly && pathname === '/api/config') {
-        sendJson(res, 200, { iceServers }, { 'cache-control': 'no-store' });
+        sendJson(res, 200, { iceServers: await getIceServers() }, { 'cache-control': 'no-store' });
         return;
       }
       if (pathname === '/api' || pathname.startsWith('/api/') || pathname.startsWith('/__test__/')) {

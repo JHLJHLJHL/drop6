@@ -12,6 +12,8 @@ export interface AppServerOptions {
   port: number;
   host: string;
   iceServers: IceServerConfig[];
+  /** Overrides `iceServers`: asked on every /api/config request (e.g. Cloudflare TURN credentials). */
+  getIceServers?: () => Promise<IceServerConfig[]>;
   staticDir: string;
   /** Exposes POST /__test__/* (clock control). Only index.ts sets this, and only for NODE_ENV=test. */
   testMode?: boolean;
@@ -62,7 +64,12 @@ export function createAppServer(options: AppServerOptions): AppServer {
     : undefined;
 
   const httpServer = createServer(
-    createHttpHandler({ iceServers: options.iceServers, staticDir: options.staticDir, testControls, logger }),
+    createHttpHandler({
+      getIceServers: options.getIceServers ?? (async () => options.iceServers),
+      staticDir: options.staticDir,
+      testControls,
+      logger,
+    }),
   );
   const signaling = attachSignaling(httpServer, {
     manager,

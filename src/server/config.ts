@@ -10,6 +10,17 @@ export interface Config {
   iceServers: IceServerConfig[];
   staticDir: string;
   trustProxyHops: number;
+  /** Cloudflare Realtime TURN: short-lived credentials generated on the server. */
+  cloudflareTurn?: { keyId: string; apiToken: string } | undefined;
+}
+
+function loadCloudflareTurn(env: NodeJS.ProcessEnv): Config['cloudflareTurn'] {
+  const keyId = env.CLOUDFLARE_TURN_KEY_ID?.trim();
+  const apiToken = env.CLOUDFLARE_TURN_API_TOKEN?.trim();
+  if (!keyId && !apiToken) return undefined;
+  if (!keyId) throw new Error('CLOUDFLARE_TURN_KEY_ID is required when CLOUDFLARE_TURN_API_TOKEN is set');
+  if (!apiToken) throw new Error('CLOUDFLARE_TURN_API_TOKEN is required when CLOUDFLARE_TURN_KEY_ID is set');
+  return { keyId, apiToken };
 }
 
 function parseInteger(name: string, value: string | undefined, fallback: number, max: number): number {
@@ -29,5 +40,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     iceServers: iceJson ? parseIceServers(iceJson) : DEFAULT_ICE_SERVERS,
     staticDir: env.STATIC_DIR?.trim() || path.resolve('dist/client'),
     trustProxyHops: parseInteger('TRUST_PROXY_HOPS', env.TRUST_PROXY_HOPS, 0, 10),
+    cloudflareTurn: loadCloudflareTurn(env),
   };
 }
