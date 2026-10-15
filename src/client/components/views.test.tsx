@@ -18,7 +18,7 @@ describe('HomeView', () => {
     render(<HomeView onFile={() => {}} onOpenReceive={() => {}} />);
     expect(screen.getByRole('heading', { name: '어떤 파일을 보낼까요?' })).toBeInTheDocument();
     expect(screen.getByText('파일을 고르면 6자리 코드를 만들어드려요.')).toBeInTheDocument();
-    expect(screen.getByText('파일은 암호화되어 전송되며 서버에 저장하지 않아요.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '어떤 파일을 보낼까요?' }).closest('.heading-center')).not.toBeNull();
     expect(screen.getByRole('link', { name: /코드 입력하기/ })).toHaveAttribute('href', '/receive');
   });
 
@@ -62,7 +62,6 @@ describe('CodeEntryView', () => {
     render(<CodeEntryView onSubmit={() => {}} onOpenHome={() => {}} />);
     expect(screen.getByRole('heading', { name: '전송 코드를 입력해주세요' })).toBeInTheDocument();
     expect(screen.getByText('보내는 사람이 알려준 6자리 코드예요.')).toBeInTheDocument();
-    expect(screen.getByText('30분이 지나도 진행 중인 전송은 계속돼요.')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: '연결하기' });
     expect(button).toBeDisabled();
     await userEvent.type(screen.getByLabelText('전송 코드'), '12345');
@@ -132,12 +131,15 @@ describe('SenderView', () => {
     render(<SenderView state={senderState()} now={1_000_000 + 5 * MIN} onLeave={noop} onRenew={noop} />);
     expect(screen.getByRole('heading', { name: '코드를 알려주세요' })).toBeInTheDocument();
     expect(screen.getByTestId('transfer-code')).toHaveTextContent('123 456');
-    expect(screen.getByText('새로운 사람은 30분 동안 들어올 수 있어요.')).toBeInTheDocument();
     expect(screen.getByRole('timer')).toHaveTextContent('25:00');
     expect(screen.getByText('0 / 3명')).toBeInTheDocument();
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
-    expect(screen.getByText('보내는 사람이 창을 닫으면 전송도 멈춰요.')).toBeInTheDocument();
-    expect(screen.getByText('30분이 지나도 진행 중인 전송은 계속돼요.')).toBeInTheDocument();
+  });
+
+  it('puts the countdown on the right and centers the heading block', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.getByRole('heading', { name: '코드를 알려주세요' }).closest('.heading-center')).not.toBeNull();
+    expect(screen.getByRole('timer').closest('.countdown')).not.toBeNull();
   });
 
   it('copies the code and confirms it', async () => {
@@ -280,5 +282,36 @@ describe('ReceiverView', () => {
     const onCancel = vi.fn();
     render(<ReceiverView state={receiverState({ phase: 'connecting' })} onAccept={noop} onCancel={onCancel} onRetry={noop} />);
     expect(within(screen.getByRole('status')).getByText(/연결하고 있어요/)).toBeInTheDocument();
+  });
+});
+
+describe('removed copy', () => {
+  const REMOVED = [
+    '새로운 사람은 30분 동안 들어올 수 있어요.',
+    '아직 아무도 들어오지 않았어요. 코드를 알려주세요.',
+    '보내는 사람이 창을 닫으면 전송도 멈춰요.',
+    '30분이 지나도 진행 중인 전송은 계속돼요.',
+    '파일은 암호화되어 전송되며 서버에 저장하지 않아요.',
+  ];
+  const noop = () => {};
+  const meta = { name: 'photo.png', size: 3 * 1024 * 1024, mime: 'image/png' };
+
+  it.each([
+    ['home', () => <HomeView onFile={noop} onOpenReceive={noop} />],
+    ['code entry', () => <CodeEntryView onSubmit={noop} onOpenHome={noop} />],
+    ['sender, waiting for people', () => <SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />],
+    [
+      'sender, with receivers',
+      () => <SenderView state={senderState({ connectedCount: 1, peers: [peerView({ ackedBytes: 10 })] })} now={1_000_000} onLeave={noop} onRenew={noop} />,
+    ],
+    ['sender, expired', () => <SenderView state={senderState()} now={1_000_000 + 31 * MIN} onLeave={noop} onRenew={noop} />],
+    ['receiver, review', () => <ReceiverView state={receiverState({ meta })} onAccept={noop} onCancel={noop} onRetry={noop} />],
+    [
+      'receiver, receiving',
+      () => <ReceiverView state={receiverState({ phase: 'receiving', meta, savedBytes: 10 })} onAccept={noop} onCancel={noop} onRetry={noop} />,
+    ],
+  ])('%s no longer shows the removed notes', (_name, view) => {
+    render(view());
+    for (const phrase of REMOVED) expect(screen.queryByText(phrase)).not.toBeInTheDocument();
   });
 });

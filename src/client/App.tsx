@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
 import { CodeEntryView } from './components/CodeEntryView';
+import { EmailCopy } from './components/EmailCopy';
 import { HomeView } from './components/HomeView';
+import { ModeToggle } from './components/ModeToggle';
 import { ReceiverScreen } from './components/ReceiverScreen';
 import { SenderScreen } from './components/SenderScreen';
-import { navigate, useRoute } from './route';
+import { confirmLeave } from './lib/leaveGuard';
+import { navigate, useRoute, type Route } from './route';
+
+const OWNER_NAME = 'LJH2026';
+const CONTACT_EMAIL = 'honeymath.gbe@gmail.com';
 
 export function App() {
   const route = useRoute();
@@ -17,8 +23,13 @@ export function App() {
   }, [route]);
 
   const goHome = () => {
+    if (!confirmLeave()) return;
     setFile(null);
     navigate('/');
+  };
+
+  const select = (next: Route) => {
+    if (confirmLeave()) navigate(next === 'home' ? '/' : '/receive');
   };
 
   let screen;
@@ -39,17 +50,24 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <a
-          className="brand"
-          href="/"
-          aria-label="DROP6 처음으로"
-          onClick={(event) => {
-            event.preventDefault();
-            goHome();
-          }}
-        >
-          DROP6
-        </a>
+        <div className="app-header-row">
+          <a
+            className="brand"
+            href="/"
+            aria-label="DROP6 처음으로"
+            onClick={(event) => {
+              event.preventDefault();
+              goHome();
+            }}
+          >
+            DROP6
+          </a>
+          <div className="owner">
+            <span className="owner-name">{OWNER_NAME}</span>
+            <EmailCopy email={CONTACT_EMAIL} />
+          </div>
+        </div>
+        <ModeToggle route={route} onSelect={select} />
       </header>
       <main className="app-main">{screen}</main>
     </div>

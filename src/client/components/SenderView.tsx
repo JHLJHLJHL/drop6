@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ROOM_TTL_MS } from '../../shared/protocol';
 import { formatBytes, formatCode, formatCountdown, formatSpeed } from '../lib/format';
 import { describeSenderClosed, describeSenderPeer } from '../lib/messages';
 import { isPeerActive, type SenderPeerView, type SenderState } from '../lib/senderSession';
-import { Button, FileCard, Heading, PrivacyNote, ProgressBar, percentOf } from './ui';
+import { Button, FileCard, Heading, ProgressBar, percentOf } from './ui';
 
 interface SenderViewProps {
   state: SenderState;
@@ -13,8 +12,6 @@ interface SenderViewProps {
   /** Start over with a fresh code for the same file. */
   onRenew(): void;
 }
-
-const WINDOW_MINUTES = ROOM_TTL_MS / 60_000;
 
 function PeerRow({ peer, hasTurn }: { peer: SenderPeerView; hasTurn: boolean }) {
   const percent = percentOf(peer.ackedBytes, peer.totalBytes);
@@ -139,7 +136,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
   return (
     <section className="card stack">
       {expired ? (
-        <div>
+        <div className="heading-center">
           <Heading>코드가 만료됐어요</Heading>
           <p className="sub">
             {idle
@@ -148,7 +145,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
           </p>
         </div>
       ) : (
-        <div>
+        <div className="heading-center">
           <Heading>코드를 알려주세요</Heading>
           <p className="sub">받는 사람이 이 코드를 입력하면 연결돼요.</p>
         </div>
@@ -160,30 +157,24 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
             {formatCode(code)}
           </p>
           <CopyButton code={code} />
-          <div className="facts">
-            <p>새로운 사람은 {WINDOW_MINUTES}분 동안 들어올 수 있어요.</p>
-            <p>
-              남은 시간 <span role="timer">{formatCountdown(remaining)}</span>
-            </p>
-          </div>
         </>
       )}
 
       {expired && idle && <Button onClick={onRenew}>새 코드 만들기</Button>}
 
-      <p className="facts" aria-live="polite">
-        접속한 사람 <strong>{`${state.connectedCount} / ${state.maxReceivers}명`}</strong>
-      </p>
+      <div className="status-row">
+        <p className="facts" aria-live="polite">
+          접속한 사람 <strong>{`${state.connectedCount} / ${state.maxReceivers}명`}</strong>
+        </p>
+        {!expired && (
+          <p className="facts countdown">
+            남은 시간 <span role="timer">{formatCountdown(remaining)}</span>
+          </p>
+        )}
+      </div>
 
       {fileCard}
       {peerList}
-      {state.peers.length === 0 && !expired && <p className="note">아직 아무도 들어오지 않았어요. 코드를 알려주세요.</p>}
-
-      <div className="notes">
-        <p className="note">보내는 사람이 창을 닫으면 전송도 멈춰요.</p>
-        {!expired && <p className="note">30분이 지나도 진행 중인 전송은 계속돼요.</p>}
-        <PrivacyNote />
-      </div>
 
       <Button variant="text" onClick={onLeave}>
         전송 끝내기

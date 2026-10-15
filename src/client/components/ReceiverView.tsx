@@ -6,7 +6,7 @@ import {
   describeReceiverFailure,
 } from '../lib/messages';
 import type { ReceiverState } from '../lib/receiverSession';
-import { Button, FileCard, Heading, PrivacyNote, ProgressBar, percentOf } from './ui';
+import { Button, FileCard, Heading, ProgressBar, percentOf } from './ui';
 
 interface ReceiverViewProps {
   state: ReceiverState;
@@ -53,7 +53,6 @@ export function ReceiverView({ state, onAccept, onCancel, onRetry }: ReceiverVie
           <Button variant="text" onClick={onCancel}>
             받지 않기
           </Button>
-          <PrivacyNote />
         </section>
       );
 
@@ -85,7 +84,6 @@ export function ReceiverView({ state, onAccept, onCancel, onRetry }: ReceiverVie
               <span>{formatSpeed(state.speed)}</span>
             </div>
           </div>
-          <p className="note">보내는 사람이 창을 닫으면 전송도 멈춰요.</p>
           <Button variant="secondary" onClick={onCancel}>
             받기 취소
           </Button>

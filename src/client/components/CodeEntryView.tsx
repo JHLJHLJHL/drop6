@@ -49,7 +49,6 @@ export function CodeEntryView({ onSubmit, onOpenHome, error, busy = false, initi
         </Button>
       </form>
 
-      <p className="note">30분이 지나도 진행 중인 전송은 계속돼요.</p>
       <a
         className="text-link"
         href="/"

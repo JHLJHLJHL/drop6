@@ -41,10 +41,6 @@ export function ProgressBar({ percent, label }: { percent: number; label: string
   );
 }
 
-export function PrivacyNote() {
-  return <p className="note">파일은 암호화되어 전송되며 서버에 저장하지 않아요.</p>;
-}
-
 export function FileCard({ name, detail }: { name: string; detail: string }) {
   return (
     <div className="file-card">
