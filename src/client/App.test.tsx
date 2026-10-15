@@ -36,6 +36,18 @@ describe('header and footer', () => {
     expect(main.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('puts an icon in front of the DROP6 title and marks the 6 for its own color', () => {
+    render(<App />);
+    const brand = screen.getByRole('link', { name: 'DROP6 처음으로' });
+    const icon = brand.querySelector('svg.lucide-arrow-down-to-line');
+    const six = brand.querySelector('.brand-six');
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(six).toHaveTextContent(/^6$/);
+    expect(brand).toHaveTextContent(/^DROP6$/); // the icon adds no text for readers
+    expect(icon!.compareDocumentPosition(six!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('copies the email on click and says 복사되었습니다', async () => {
     const writeText = mockClipboard();
     render(<App />);

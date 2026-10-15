@@ -2,6 +2,8 @@
   --primary: #3182f6;
   --primary-strong: #1b64da;
   --primary-weak: #e8f3ff;
+  /* Accent for the 6 in the title: orange against the blue, 3.4:1 on the page background */
+  --accent: #ea580c;
   --grey-900: #191f28;
   --grey-700: #4e5968;
   --grey-500: #8b95a1;
@@ -182,6 +184,7 @@ p {
 .brand {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   min-height: 44px;
   padding: 0 4px;
   border-radius: 12px;
@@ -190,6 +193,22 @@ p {
   font-weight: 800;
   letter-spacing: -0.02em;
   text-decoration: none;
+}
+
+.brand-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+}
+
+.brand-six {
+  color: var(--accent);
 }
 
 .card {

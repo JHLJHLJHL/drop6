@@ -1,3 +1,4 @@
+import { ArrowDownToLine } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CodeEntryView } from './components/CodeEntryView';
 import { EmailCopy } from './components/EmailCopy';
@@ -56,7 +57,12 @@ export function App() {
               goHome();
             }}
           >
-            DROP6
+            <span className="brand-mark" aria-hidden="true">
+              <ArrowDownToLine size={18} strokeWidth={2.75} aria-hidden="true" />
+            </span>
+            <span>
+              DROP<span className="brand-six">6</span>
+            </span>
           </a>
         </div>
         <ModeToggle route={route} onSelect={select} />
