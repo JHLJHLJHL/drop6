@@ -1,0 +1,94 @@
+import { describe, expect, it } from 'vitest';
+import { MAX_BUFFERED_AMOUNT } from '../../shared/transfer';
+import { FileReceiver, type ReceiveSnapshot } from './fileReceiver';
+import { FileSender, type SendSnapshot } from './fileSender';
+import { FakeChannel, FakeSink, linkChannels, makeFile, waitFor } from './testFakes';
+
+/** One sender-side + receiver-side pair over a linked fake network, like one RTCPeerConnection each. */
+function createPeer(file: File, sinkOptions: { gate?: Promise<void> } = {}) {
+  const senderChannel = new FakeChannel();
+  const receiverChannel = new FakeChannel();
+  const network = linkChannels(senderChannel, receiverChannel);
+  const sink = new FakeSink();
+  sink.gate = sinkOptions.gate;
+  let sendSnapshot: SendSnapshot | undefined;
+  let receiveSnapshot: ReceiveSnapshot | undefined;
+  const sender = new FileSender(senderChannel, file, (s) => (sendSnapshot = s));
+  const receiver = new FileReceiver(receiverChannel, { memoryOnly: false }, (s) => (receiveSnapshot = s));
+  return {
+    senderChannel,
+    receiverChannel,
+    network,
+    sink,
+    sender,
+    receiver,
+    get send() { return sendSnapshot!; },
+    get receive() { return receiveSnapshot!; },
+    begin() {
+      sender.start();
+      return waitFor(() => receiveSnapshot?.phase === 'review').then(() => receiver.accept(sink));
+    },
+  };
+}
+
+describe('sender and receiver together', () => {
+  it('delivers the exact bytes, with progress following the receiver and complete after the last ACK', async () => {
+    const file = makeFile(1_000_003);
+    const peer = createPeer(file);
+    await peer.begin();
+    await waitFor(() => peer.send.phase === 'done' && peer.receive.phase === 'done');
+
+    expect(Buffer.from(peer.sink.bytes).equals(Buffer.from(await file.arrayBuffer()))).toBe(true);
+    expect(peer.send).toMatchObject({ ackedBytes: 1_000_003, totalBytes: 1_000_003 });
+    expect(peer.senderChannel.maxBufferedAmount).toBeLessThanOrEqual(MAX_BUFFERED_AMOUNT);
+    expect(peer.sink.closed).toBe(1);
+  });
+
+  it('keeps the sender at the receiver\'s pace when the disk is slow', async () => {
+    const file = makeFile(600_000);
+    let release!: () => void;
+    const peer = createPeer(file, { gate: new Promise<void>((resolve) => (release = resolve)) });
+    await peer.begin();
+    await waitFor(() => peer.senderChannel.chunks.length === 10);
+    expect(peer.send.ackedBytes).toBe(0); // nothing saved yet -> no progress yet
+
+    release();
+    await waitFor(() => peer.send.phase === 'done');
+    expect(peer.sink.bytes.length).toBe(600_000);
+  });
+
+  it('one receiver failing does not stop the other two', async () => {
+    const file = makeFile(4 * 1024 * 1024);
+    const peers = [createPeer(file), createPeer(file), createPeer(file)];
+    const [healthy1, victim, healthy2] = peers as [ReturnType<typeof createPeer>, ReturnType<typeof createPeer>, ReturnType<typeof createPeer>];
+
+    await Promise.all(peers.map((p) => p.begin()));
+    await waitFor(() => victim.senderChannel.chunks.length > 0);
+    victim.receiverChannel.close(); // e.g. the receiver closed their tab
+
+    await waitFor(() => healthy1.send.phase === 'done' && healthy2.send.phase === 'done');
+    await waitFor(() => victim.send.phase === 'failed');
+    expect(victim.send.reason).toBe('connection-lost');
+    expect(victim.receive.phase).toBe('failed');
+    expect(victim.sink.aborted).toBe(1);
+
+    const original = Buffer.from(await file.arrayBuffer());
+    expect(Buffer.from(healthy1.sink.bytes).equals(Buffer.from(original))).toBe(true);
+    expect(Buffer.from(healthy2.sink.bytes).equals(Buffer.from(original))).toBe(true);
+  });
+
+  it('one receiver cancelling does not stop the other two', async () => {
+    const file = makeFile(4 * 1024 * 1024);
+    const peers = [createPeer(file), createPeer(file), createPeer(file)];
+    const [healthy1, canceller, healthy2] = peers as [ReturnType<typeof createPeer>, ReturnType<typeof createPeer>, ReturnType<typeof createPeer>];
+
+    await Promise.all(peers.map((p) => p.begin()));
+    await waitFor(() => canceller.senderChannel.chunks.length > 0);
+    canceller.receiver.cancel();
+
+    await waitFor(() => healthy1.send.phase === 'done' && healthy2.send.phase === 'done');
+    await waitFor(() => canceller.send.phase === 'canceled');
+    expect(canceller.sink.aborted).toBe(1);
+    expect(canceller.sink.closed).toBe(0);
+  });
+});
