@@ -166,8 +166,12 @@ WebRTC 연결에 쓸 STUN/TURN 서버를 JSON 배열로 넣어요. (`.env.exampl
 ### 가장 쉬운 TURN 설정: Cloudflare Realtime TURN
 
 월 1,000GB까지 무료인 [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/)을 바로 쓸 수 있어요.
-Cloudflare가 주는 키는 서버에만 두고, 서버가 방문자마다 **짧게 유효한 TURN 자격정보**를 만들어 `/api/config`로 내려줘요.
-(`ICE_SERVERS_JSON`처럼 고정 비밀번호가 브라우저에 노출되지 않아요.)
+Cloudflare가 주는 키는 서버에만 두고, 서버가 **24시간 유효한 TURN 자격정보**를 만들어 `/api/config`로 내려줘요.
+자격정보는 12시간마다 새로 만들고, 그동안은 모든 방문자가 같은 자격정보를 받아요. (키 자체와 `ICE_SERVERS_JSON`처럼 만료되지 않는 비밀번호는 브라우저에 노출되지 않아요.)
+
+> **사용량 주의**: 사이트를 여는 누구나 이 자격정보를 볼 수 있어서, 악의적으로 쓰면 무료 사용량이 소모될 수 있어요.
+> Cloudflare에는 사용량이 넘으면 서비스를 자동으로 멈추는 기능이 없고, 예산 알림은 이메일 안내뿐이에요(하루 늦게 와요).
+> 알림을 걸어두고, 문제가 생기면 Cloudflare에서 TURN 키를 삭제하세요. 삭제하면 새 자격정보 발급이 멈추고 서비스는 STUN만으로 계속 동작해요.
 
 1. Cloudflare 대시보드의 **Realtime**(Calls) 메뉴에서 **TURN Server**를 만들어요.
 2. 만들어진 **TURN Token ID**와 **API Token**을 복사해요.
@@ -251,7 +255,7 @@ Cloudflare가 주는 키는 서버에만 두고, 서버가 방문자마다 **짧
 | `NODE_ENV` | `development` | `production`에서 실행, `test`에서만 테스트용 시계 제어 활성화 |
 | `ICE_SERVERS_JSON` | 공개 STUN 1개 | ICE 서버 JSON 배열 |
 | `CLOUDFLARE_TURN_KEY_ID` | 없음 | Cloudflare TURN Token ID (`CLOUDFLARE_TURN_API_TOKEN`과 함께 설정) |
-| `CLOUDFLARE_TURN_API_TOKEN` | 없음 | Cloudflare TURN API Token. 서버가 방문자마다 짧은 TURN 자격정보를 만들 때만 써요 |
+| `CLOUDFLARE_TURN_API_TOKEN` | 없음 | Cloudflare TURN API Token. 서버가 24시간 유효한 TURN 자격정보를 만들 때만 써요 |
 | `TRUST_PROXY_HOPS` | `0` | 앞단 프록시 개수. 0이면 소켓 IP, 1 이상이면 `X-Forwarded-For`의 오른쪽에서 N번째 값을 접속 시도 제한 키로 사용 |
 | `STATIC_DIR` | `dist/client` | 프런트엔드 정적 파일 위치 |
 
