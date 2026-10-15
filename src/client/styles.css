@@ -208,7 +208,14 @@ p {
 }
 
 .brand-six {
+  margin-left: 1px;
   color: var(--accent);
+  /* hand-written with a pen: Kalam, falling back to the system's handwriting fonts */
+  font-family: 'Kalam', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+  font-size: 1.2em;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .card {

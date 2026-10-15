@@ -86,6 +86,38 @@ test('the title has an icon in front, and the 6 has its own accent color', async
   await expect(page.locator('.brand')).toHaveAccessibleName('DROP6 처음으로');
 });
 
+test('the 6 is hand-written with a pen font that is served from this site', async ({ page }) => {
+  const fonts: Array<{ url: string; status: number }> = [];
+  page.on('response', (response) => {
+    if (response.request().resourceType() === 'font') fonts.push({ url: response.url(), status: response.status() });
+  });
+  await page.goto('/');
+
+  await expect(page.locator('.brand-six')).toHaveCSS('font-family', /Kalam/);
+  await expect(page.locator('.brand-six')).toHaveCSS('font-weight', '700');
+  await expect(page.locator('.brand')).not.toHaveCSS('font-family', /Kalam/); // DROP stays in the UI font
+  await expect(page.locator('.brand-six')).toHaveText('6');
+
+  // the pen font really loaded (not a silent fallback)
+  await expect
+    .poll(() => page.evaluate(() => [...document.fonts].some((face) => face.family.includes('Kalam') && face.status === 'loaded')))
+    .toBe(true);
+  const kalam = fonts.filter(({ url }) => /kalam/i.test(url));
+  expect(kalam.length).toBeGreaterThan(0);
+  for (const { url, status } of kalam) {
+    expect(status).toBe(200);
+    expect(new URL(url).origin).toBe(new URL(page.url()).origin); // same origin: allowed by the CSP, no third party
+  }
+
+  // it fits the title row: the 6 stays inside the title's box and does not grow the header
+  const brand = (await page.locator('.brand').boundingBox())!;
+  const six = (await page.locator('.brand-six').boundingBox())!;
+  expect(six.y).toBeGreaterThanOrEqual(brand.y - 1);
+  expect(six.y + six.height).toBeLessThanOrEqual(brand.y + brand.height + 1);
+  const header = (await page.locator('.app-header-row').boundingBox())!;
+  expect(header.height).toBeLessThanOrEqual(brand.height + 1);
+});
+
 test('the header only holds the title now, and the email keeps a 44px touch target in the footer', async ({ page }) => {
   await page.goto('/');
   const header = (await page.locator('.app-header-row').boundingBox())!;
