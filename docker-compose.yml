@@ -1,0 +1,38 @@
+# Self-hosted deployment (Oracle Cloud Always Free VM, or any VPS): DROP6 behind Caddy,
+# which gets and renews the HTTPS certificate by itself. See README "Oracle Cloud에 배포하기".
+#
+#   cp .env.example .env     # set DOMAIN and the other values
+#   docker compose up -d --build
+#
+# Rooms live in server memory, so run exactly ONE app container. Never use --scale.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Caddy is the one reverse proxy in front of the app.
+      TRUST_PROXY_HOPS: "1"
+    # Only Caddy talks to the app; the port is not published on the host.
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env, for example DOMAIN=drop6.duckdns.org}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Keeps the certificate across restarts (Let's Encrypt limits how often one can be issued).
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

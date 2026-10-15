@@ -105,6 +105,7 @@ docker run --rm -p 3000:3000 -e ICE_SERVERS_JSON='[]' drop6
 
 Docker를 지원하는 다른 서비스(Fly.io, Railway, Cloud Run 등)에서도 같은 이미지로 실행할 수 있어요.
 단, **인스턴스는 반드시 1개**로 실행해야 해요.
+VM에 직접 올리려면 [Oracle Cloud에 배포하기](#oracle-cloud에-배포하기-무료-잠들지-않아요)를 참고하세요.
 
 ## GitHub 저장소 만들고 push하기
 
@@ -146,6 +147,74 @@ push하면 `.github/workflows/ci.yml`이 자동으로 실행돼요
 - GitHub의 예약 실행은 정확한 시각을 보장하지 않아서 몇 분 늦게 돌 수 있어요. 가끔 잠드는 건 막지 못해요.
 - 공개 저장소는 60일 동안 활동이 없으면 예약 실행이 자동으로 꺼져요. Actions 탭에서 다시 켜면 돼요.
 - 24시간 켜 두면 한 달에 약 744시간이라, Render 무료 플랜의 월 사용 시간 한도(750시간)에 거의 다 차요. 이 계정에서 무료 서비스는 이것 하나만 두세요.
+
+## Oracle Cloud에 배포하기 (무료, 잠들지 않아요)
+
+Oracle Cloud의 Always Free VM에 올리면 Render 무료 플랜처럼 잠들지 않아요. `docker-compose.yml`은 앱과 [Caddy](https://caddyserver.com/)를 함께 띄우고,
+Caddy가 HTTPS 인증서 발급과 갱신, `wss://` 중계를 맡아요. 서버를 직접 관리해야 한다는 점이 Render와 달라요.
+무료 한도와 정책은 바뀔 수 있으니 가입 전에 Oracle 문서에서 확인하세요.
+
+### 1. VM 만들기
+
+1. Oracle Cloud에 가입해요. 가입할 때 카드 인증이 필요해요. 홈 리전은 **South Korea Central (Seoul)**로 골라요. 나중에 바꿀 수 없어요.
+2. **Compute > Instances > Create instance**에서 이미지는 **Ubuntu 24.04**, 구성은 **Ampere (VM.Standard.A1.Flex)** 1 OCPU / 6GB 정도로 골라요.
+   - 서울 리전에서 `Out of capacity`가 나오면 시간을 두고 다시 시도하거나 `VM.Standard.E2.1.Micro`(1GB)를 써요. 1GB에서는 이미지를 빌드하다 메모리가 모자랄 수 있어서 swap을 2GB쯤 만들어 두세요.
+3. SSH 키를 내려받아 두고, 만들어진 VM의 **공용 IP**를 적어 둬요.
+   VM을 다시 만들어도 주소를 유지하려면 공용 IP를 예약 IP로 바꿀 수 있어요.
+
+### 2. 포트 열기 (두 군데 모두)
+
+- Oracle 콘솔: VM의 **Subnet > Security List > Add Ingress Rules**에서 TCP **80**과 **443**을 `0.0.0.0/0`에 열어요.
+- VM 안쪽 방화벽: Oracle의 Ubuntu 이미지는 `iptables`로 80/443을 막고 있어서 SSH로 접속해 열어요.
+
+```bash
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+### 3. Docker 설치
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER   # 적용하려면 로그아웃 후 다시 접속해요
+```
+
+### 4. 도메인 연결
+
+HTTPS 인증서에는 도메인이 필요해요. 무료로는 [DuckDNS](https://www.duckdns.org/)에서 `drop6.duckdns.org` 같은 서브도메인을 만들고
+위에서 적어 둔 공용 IP를 넣으면 돼요. 가지고 있는 도메인이 있으면 A 레코드를 공용 IP로 지정해도 돼요.
+
+### 5. 실행
+
+```bash
+git clone https://github.com/<계정>/drop6.git
+cd drop6
+cp .env.example .env
+nano .env    # DOMAIN과 ICE_SERVERS_JSON 등을 채워요
+docker compose up -d --build
+```
+
+- `.env`의 `DOMAIN`에 4번에서 만든 도메인을 넣어요. 비어 있으면 `docker compose`가 안내 메시지를 내고 멈춰요.
+- `ICE_SERVERS_JSON`은 한 줄로 쓰고 값 전체를 작은따옴표로 감싸요. 예: `ICE_SERVERS_JSON='[{"urls":["stun:stun.example.com:3478"]}]'`
+- `TRUST_PROXY_HOPS`는 compose가 `1`(Caddy 한 단계)로 덮어써서 `.env`의 값은 쓰이지 않아요.
+- 처음 접속 때 Caddy가 인증서를 받아 오느라 몇 초 걸릴 수 있어요.
+
+`https://<도메인>/health`가 `{"status":"ok"}`를 돌려주는지, `https://<도메인>/api/config`에 ICE 서버가 나오는지 확인해요.
+컨테이너는 `restart: unless-stopped`라서 VM이 재부팅돼도 다시 떠요.
+
+### 업데이트와 운영
+
+```bash
+git pull && docker compose up -d --build   # 새 코드 반영 (이 순간 열려 있던 방은 사라져요)
+docker compose logs -f app                 # 앱 로그
+docker compose logs -f caddy               # 인증서/프록시 로그
+```
+
+- 앱 컨테이너는 **1개만** 실행해요. `--scale`로 늘리지 마세요.
+- Oracle은 한동안 사용량이 매우 낮은 Always Free 인스턴스를 회수(중지)할 수 있다고 안내해요. 이 앱은 한가해서 해당될 수 있어요.
+  계정을 Pay As You Go로 올리고 Always Free 한도 안에서만 쓰면 요금 없이 이 대상에서 빠진다고 알려져 있지만, 현재 정책은 Oracle 문서에서 직접 확인하세요.
+- Oracle로 옮기면 `.github/workflows/keep-awake.yml`은 필요 없어요. `RENDER_URL` 변수를 비워두면 아무것도 하지 않아요.
 
 ## ICE_SERVERS_JSON 설정
 
@@ -305,6 +374,7 @@ Cloudflare는 사용량이 넘어도 자동으로 멈추지 않기 때문에, �
 
 `render.yaml`은 `TRUST_PROXY_HOPS=1`로 설정돼 있어요. `X-Forwarded-For`의 오른쪽 값은 Render의 프록시가 붙인 값이라 사용자가 위조할 수 없어요.
 Render 앞단 구성이 달라 모든 사용자가 같은 IP로 보이면 접속 시도 제한이 공유될 수 있으니, 배포 후 확인해보세요.
+`docker-compose.yml`도 Caddy 한 단계 뒤에서 `TRUST_PROXY_HOPS=1`로 실행해요.
 
 ## 보안 메모
 

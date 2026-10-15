@@ -1,0 +1,6 @@
+# HTTPS for DROP6. Caddy gets a Let's Encrypt certificate for $DOMAIN, redirects HTTP to HTTPS
+# and proxies WebSocket (/ws) upgrades to the app without extra settings.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}
