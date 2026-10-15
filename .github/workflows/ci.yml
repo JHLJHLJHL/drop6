@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test, typecheck, build, E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  docker:
+    name: Docker image smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t drop6:ci .
+
+      - name: Image runs as a non-root user
+        run: test "$(docker run --rm --entrypoint id drop6:ci -u)" != "0"
+
+      - name: Start container
+        run: docker run -d --name drop6 -p 3000:3000 -e ICE_SERVERS_JSON='[]' drop6:ci
+
+      - name: Check /health, /api/config and the SPA
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3000/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/health | grep '"status":"ok"'
+          curl -fsS http://127.0.0.1:3000/api/config | grep '"iceServers":\[\]'
+          curl -fsS http://127.0.0.1:3000/receive | grep -i '<div id="root">'
+
+      - name: Container shuts down gracefully on SIGTERM
+        run: |
+          docker stop --time 15 drop6
+          test "$(docker inspect -f '{{.State.ExitCode}}' drop6)" = "0"
+
+      - name: Container logs
+        if: failure()
+        run: docker logs drop6

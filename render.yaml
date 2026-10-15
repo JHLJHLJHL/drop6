@@ -1,0 +1,23 @@
+# Render Blueprint: connect this GitHub repository in the Render dashboard
+# (New > Blueprint) and the service is created from this file.
+#
+# Rooms live in server memory, so this service must run exactly ONE instance.
+# Do not enable autoscaling or raise numInstances.
+services:
+  - type: web
+    name: drop6
+    runtime: docker
+    # Plans and free-tier limits change; pick one your account offers when creating the Blueprint.
+    # Free web services spin down when idle, which drops all open rooms.
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    numInstances: 1
+    autoDeployTrigger: commit
+    envVars:
+      # TURN/STUN servers as JSON (see README). Entered in the dashboard; never commit it.
+      - key: ICE_SERVERS_JSON
+        sync: false
+      # One reverse proxy (Render's load balancer) sits in front of the app.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
