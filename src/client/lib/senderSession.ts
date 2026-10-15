@@ -116,10 +116,11 @@ class PeerLink {
   }
 
   peerLeft(): void {
-    if (FINISHED.includes(this.view.phase)) return;
-    this.transfer?.cancel();
-    this.set({ phase: 'left', speed: 0 });
-    this.dispose();
+    if (!FINISHED.includes(this.view.phase)) {
+      this.transfer?.cancel();
+      this.set({ phase: 'left', speed: 0 });
+    }
+    this.dispose(); // a finished receiver's connection is released once it leaves
   }
 
   dispose(): void {
