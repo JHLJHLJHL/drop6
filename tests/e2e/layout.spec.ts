@@ -10,15 +10,46 @@ const PRIVACY = '파일은 암호화되어 전송, 서버에 저장하지 않음
 
 const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
 
-test('owner name and email sit at the right end of the title row', async ({ page }) => {
+/** Bounding box of the text itself (not the padded element), so edges can be compared exactly. */
+const textExtent = (page: Page, selector: string) =>
+  page.locator(selector).evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const { top, bottom, left, right } = range.getBoundingClientRect();
+    return { top, bottom, left, right };
+  });
+
+for (const viewport of [
+  { name: 'desktop', width: 1280, height: 720 },
+  { name: '360px', width: 360, height: 740 },
+]) {
+  test(`the signature is in the footer: name at the left end, email at the right end (${viewport.name})`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+
+    const footer = await box(page, '.app-footer');
+    const name = await textExtent(page, '.owner-name');
+    const email = await textExtent(page, '.email-button');
+    // one row, sharing the footer's content width with the rest of the page
+    expect(Math.abs((name.top + name.bottom) / 2 - (email.top + email.bottom) / 2)).toBeLessThanOrEqual(4);
+    expect(name.left).toBeGreaterThanOrEqual(footer.x);
+    expect(name.left - footer.x).toBeLessThanOrEqual(24); // hugs the left end
+    expect(footer.x + footer.width - email.right).toBeLessThanOrEqual(24); // hugs the right end
+    expect(email.left).toBeGreaterThan(name.right);
+
+    // it is the very bottom of the page, below the card, and gone from the header
+    const card = await box(page, '.card');
+    expect(footer.y).toBeGreaterThanOrEqual(card.y + card.height);
+    await expect(page.locator('.app-header .owner-name')).toHaveCount(0);
+    await expect(page.locator('.app-header .email-button')).toHaveCount(0);
+  });
+}
+
+test('on a short page the footer sits at the bottom of the screen', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
-  const brand = await box(page, '.brand');
-  const owner = await box(page, '.owner');
-  const row = await box(page, '.app-header-row');
-  expect(Math.abs(brand.y + brand.height / 2 - (owner.y + owner.height / 2))).toBeLessThan(brand.height);
-  expect(owner.x).toBeGreaterThan(brand.x + brand.width);
-  expect(Math.abs(owner.x + owner.width - (row.x + row.width))).toBeLessThanOrEqual(1);
-  await expect(page.locator('.owner')).toHaveCSS('text-align', 'right');
+  const footer = await box(page, '.app-footer');
+  expect(footer.y + footer.height).toBeGreaterThanOrEqual(900 - 24);
 });
 
 test('the send / receive toggle is above the card and switches screens', async ({ page }) => {
@@ -86,17 +117,14 @@ test('the removed notes are gone from the send screens', async ({ page }) => {
 test.describe('360px', () => {
   test.use({ viewport: { width: 360, height: 740 } });
 
-  test('header, toggle and toast stay inside the screen', async ({ page, context }) => {
+  test('header, footer and toast stay inside the screen', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.goto('/');
-    for (const selector of ['.brand', '.owner', '.toggle', '.email-button']) {
+    for (const selector of ['.brand', '.toggle', '.app-footer', '.owner-name', '.email-button']) {
       const b = await box(page, selector);
       expect(b.x).toBeGreaterThanOrEqual(0);
       expect(b.x + b.width).toBeLessThanOrEqual(360);
     }
-    const owner = await box(page, '.owner');
-    const header = await box(page, '.app-header');
-    expect(owner.x + owner.width).toBeLessThanOrEqual(header.x + header.width + 1);
     await page.getByRole('button', { name: /honeymath/ }).click();
     const toast = await box(page, '.toast');
     expect(toast.x).toBeGreaterThanOrEqual(0);

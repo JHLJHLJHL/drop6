@@ -19,9 +19,9 @@ test('the email is plain text that only gets an underline on hover (no box)', as
 
 test('the signature font is 1px smaller than before', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.owner')).toHaveCSS('font-size', '12px'); // was 13px
+  await expect(page.locator('.app-footer')).toHaveCSS('font-size', '12px'); // was 13px
   await page.setViewportSize({ width: 360, height: 740 });
-  await expect(page.locator('.owner')).toHaveCSS('font-size', '11px'); // was 12px
+  await expect(page.locator('.app-footer')).toHaveCSS('font-size', '11px'); // was 12px
 });
 
 test('the cards no longer carry extra links; the toggle switches sides', async ({ page }) => {
@@ -49,42 +49,17 @@ test('the DROP6 title is 3px bigger', async ({ page }) => {
   await expect(page.locator('.brand')).toHaveCSS('font-size', '23px');
 });
 
-for (const viewport of [
-  { name: 'desktop', width: 1280, height: 720 },
-  { name: '360px', width: 360, height: 740 },
-]) {
-  test(`the signature is two right-aligned lines: name above email (${viewport.name})`, async ({ page }) => {
-    await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await page.goto('/');
-
-    // text extents (not the padded boxes) so the right edges can be compared exactly
-    const extent = (selector: string) =>
-      page.locator(selector).evaluate((el) => {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        const { top, bottom, left, right } = range.getBoundingClientRect();
-        return { top, bottom, left, right };
-      });
-    const name = await extent('.owner-name');
-    const email = await extent('.email-button');
-    const row = (await page.locator('.app-header-row').boundingBox())!;
-    const brand = (await page.locator('.brand').boundingBox())!;
-
-    expect(name.bottom).toBeLessThanOrEqual(email.top + 1); // LJH2026 sits on the line above the email
-    expect(Math.abs(name.right - email.right)).toBeLessThanOrEqual(1); // both end at the same right edge
-    expect(name.left).toBeGreaterThan(email.left); // the shorter name is pushed to the right, not left-aligned
-    expect(email.right).toBeLessThanOrEqual(row.x + row.width + 1);
-    expect(email.left).toBeGreaterThan(brand.x + brand.width); // still on the title row, right of DROP6
-  });
-}
-
-test('the whole signature stays a 44px touch target', async ({ page }) => {
+test('the header only holds the title now, and the email keeps a 44px touch target in the footer', async ({ page }) => {
   await page.goto('/');
-  const box = (await page.getByRole('button', { name: /honeymath/ }).boundingBox())!;
-  expect(box.height).toBeGreaterThanOrEqual(44);
-  // the name is drawn over the top of that target instead of making the header taller
   const header = (await page.locator('.app-header-row').boundingBox())!;
-  expect(header.height).toBeLessThanOrEqual(box.height + 1);
+  const brand = (await page.locator('.brand').boundingBox())!;
+  expect(header.height).toBeLessThanOrEqual(brand.height + 1);
+
+  const email = (await page.getByRole('button', { name: /honeymath/ }).boundingBox())!;
+  expect(email.height).toBeGreaterThanOrEqual(44);
+  const footer = (await page.locator('.app-footer').boundingBox())!;
+  expect(email.y).toBeGreaterThanOrEqual(footer.y - 1);
+  expect(email.y + email.height).toBeLessThanOrEqual(footer.y + footer.height + 1);
 });
 
 test('line breaks in a message are shown as line breaks', async ({ page }) => {

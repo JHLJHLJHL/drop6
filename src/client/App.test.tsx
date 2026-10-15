@@ -18,15 +18,22 @@ function mockClipboard(writeText = vi.fn().mockResolvedValue(undefined)) {
   return writeText;
 }
 
-describe('header', () => {
-  it('shows the brand on the left and the owner name and email on the right', () => {
+describe('header and footer', () => {
+  it('keeps only the brand in the header and puts the signature in the footer', () => {
     render(<App />);
     const header = screen.getByRole('banner');
     expect(within(header).getByRole('link', { name: 'DROP6 처음으로' })).toBeInTheDocument();
-    const owner = within(header).getByText('LJH2026').closest('.owner');
-    expect(owner).not.toBeNull();
-    expect(within(owner as HTMLElement).getByRole('button', { name: /honeymath\.gbe@gmail\.com/ })).toBeInTheDocument();
-    expect(header.querySelector('.app-header-row')).toContainElement(owner as HTMLElement);
+    expect(within(header).queryByText('LJH2026')).not.toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: /honeymath/ })).not.toBeInTheDocument();
+
+    const footer = screen.getByRole('contentinfo');
+    const name = within(footer).getByText('LJH2026');
+    const email = within(footer).getByRole('button', { name: /honeymath\.gbe@gmail\.com/ });
+    // name first (left end), email last (right end)
+    expect(name.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // the footer comes after the page content
+    const main = screen.getByRole('main');
+    expect(main.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('copies the email on click and says 복사되었습니다', async () => {

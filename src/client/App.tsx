@@ -58,14 +58,14 @@ export function App() {
           >
             DROP6
           </a>
-          <div className="owner">
-            <span className="owner-name">{OWNER_NAME}</span>
-            <EmailCopy email={CONTACT_EMAIL} />
-          </div>
         </div>
         <ModeToggle route={route} onSelect={select} />
       </header>
       <main className="app-main">{screen}</main>
+      <footer className="app-footer">
+        <span className="owner-name">{OWNER_NAME}</span>
+        <EmailCopy email={CONTACT_EMAIL} />
+      </footer>
     </div>
   );
 }

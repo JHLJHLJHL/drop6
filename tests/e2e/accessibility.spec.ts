@@ -70,9 +70,14 @@ test('the whole flow works with the keyboard alone and focus is always visible',
     order.push(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim() ?? ''));
     if (order.at(-1) === '파일 고르기') break;
   }
-  // header (brand, email, 보내기/받기 toggle) comes first, then the card's primary button
-  expect(order).toEqual(['DROP6 처음으로', 'honeymath.gbe@gmail.com 복사', '보내기', '받기', '파일 고르기']);
+  // header (brand, 보내기/받기 toggle) comes first, then the card's primary button
+  expect(order).toEqual(['DROP6 처음으로', '보내기', '받기', '파일 고르기']);
   const pick = page.getByRole('button', { name: '파일 고르기' });
+  await expect(pick).toBeFocused();
+  // the footer's email is the last stop on the page
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: /honeymath/ })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
   await expect(pick).toBeFocused();
   const outline = await pick.evaluate((el) => {
     const style = getComputedStyle(el);
