@@ -43,7 +43,7 @@ export function HomeView({ onFile, onOpenReceive }: HomeViewProps) {
   return (
     <section className="card stack">
       <div>
-        <Heading>어떤 파일을 보낼까요?</Heading>
+        <Heading focusOnMount={false}>어떤 파일을 보낼까요?</Heading>
         <p className="sub">파일을 고르면 6자리 코드를 만들어드려요.</p>
       </div>
 

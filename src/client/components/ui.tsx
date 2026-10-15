@@ -15,12 +15,16 @@ export function Button({ variant = 'primary', loading = false, disabled, classNa
   );
 }
 
-/** Page title. Takes focus on mount so screen readers announce each new state. */
-export function Heading({ children }: { children: ReactNode }) {
+/**
+ * Page title. Takes focus on mount so screen readers announce each new state.
+ * Pass focusOnMount={false} on screens that already focus something better
+ * (the code field) or that are the first thing on page load.
+ */
+export function Heading({ children, focusOnMount = true }: { children: ReactNode; focusOnMount?: boolean }) {
   const ref = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    ref.current?.focus({ preventScroll: true });
-  }, []);
+    if (focusOnMount) ref.current?.focus({ preventScroll: true });
+  }, [focusOnMount]);
   return (
     <h1 className="title" ref={ref} tabIndex={-1}>
       {children}

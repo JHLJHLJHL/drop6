@@ -24,7 +24,7 @@ export function CodeEntryView({ onSubmit, onOpenHome, error, busy = false, initi
   return (
     <section className="card stack">
       <div>
-        <Heading>전송 코드를 입력해주세요</Heading>
+        <Heading focusOnMount={false}>전송 코드를 입력해주세요</Heading>
         <p className="sub">보내는 사람이 알려준 6자리 코드예요.</p>
       </div>
 
