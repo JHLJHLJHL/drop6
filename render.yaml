@@ -24,6 +24,12 @@ services:
         sync: false
       - key: CLOUDFLARE_TURN_API_TOKEN
         sync: false
+      # Usage limit for TURN (optional, see README): with these two set, the server stops handing out
+      # TURN credentials once the key has sent TURN_MONTHLY_LIMIT_GB (default 800) in 31 days.
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_ANALYTICS_API_TOKEN
+        sync: false
       # One reverse proxy (Render's load balancer) sits in front of the app.
       - key: TRUST_PROXY_HOPS
         value: "1"

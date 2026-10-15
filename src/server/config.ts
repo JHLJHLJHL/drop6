@@ -11,16 +11,50 @@ export interface Config {
   staticDir: string;
   trustProxyHops: number;
   /** Cloudflare Realtime TURN: short-lived credentials generated on the server. */
-  cloudflareTurn?: { keyId: string; apiToken: string } | undefined;
+  cloudflareTurn?: CloudflareTurnConfig | undefined;
+}
+
+export interface CloudflareTurnConfig {
+  keyId: string;
+  apiToken: string;
+  /** Stops handing out TURN credentials once the key's usage reaches the limit. */
+  usageLimit?: { accountId: string; analyticsToken: string; limitGb: number } | undefined;
+}
+
+const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+const DEFAULT_TURN_LIMIT_GB = 800;
+
+function loadUsageLimit(env: NodeJS.ProcessEnv, turn: { keyId: string } | undefined): CloudflareTurnConfig['usageLimit'] {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const analyticsToken = env.CLOUDFLARE_ANALYTICS_API_TOKEN?.trim();
+  const limitRaw = env.TURN_MONTHLY_LIMIT_GB?.trim();
+  if (!accountId && !analyticsToken && !limitRaw) return undefined;
+
+  // A limit nothing could enforce must fail loudly instead of silently running uncapped.
+  if (!turn) throw new Error('CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN are required for a TURN usage limit');
+  if (!accountId) throw new Error('CLOUDFLARE_ACCOUNT_ID is required for the TURN usage limit');
+  if (!analyticsToken) throw new Error('CLOUDFLARE_ANALYTICS_API_TOKEN is required for the TURN usage limit');
+  if (!ID_PATTERN.test(accountId)) throw new Error('CLOUDFLARE_ACCOUNT_ID must be a plain Cloudflare account id');
+
+  let limitGb = DEFAULT_TURN_LIMIT_GB;
+  if (limitRaw) {
+    if (!/^\d+(\.\d+)?$/.test(limitRaw) || Number(limitRaw) <= 0) throw new Error('TURN_MONTHLY_LIMIT_GB must be a positive number');
+    limitGb = Number(limitRaw);
+  }
+  return { accountId, analyticsToken, limitGb };
 }
 
 function loadCloudflareTurn(env: NodeJS.ProcessEnv): Config['cloudflareTurn'] {
   const keyId = env.CLOUDFLARE_TURN_KEY_ID?.trim();
   const apiToken = env.CLOUDFLARE_TURN_API_TOKEN?.trim();
-  if (!keyId && !apiToken) return undefined;
+  if (!keyId && !apiToken) {
+    loadUsageLimit(env, undefined); // throws if a usage limit was configured without TURN
+    return undefined;
+  }
   if (!keyId) throw new Error('CLOUDFLARE_TURN_KEY_ID is required when CLOUDFLARE_TURN_API_TOKEN is set');
   if (!apiToken) throw new Error('CLOUDFLARE_TURN_API_TOKEN is required when CLOUDFLARE_TURN_KEY_ID is set');
-  return { keyId, apiToken };
+  if (!ID_PATTERN.test(keyId)) throw new Error('CLOUDFLARE_TURN_KEY_ID must be a plain Cloudflare TURN key id');
+  return { keyId, apiToken, usageLimit: loadUsageLimit(env, { keyId }) };
 }
 
 function parseInteger(name: string, value: string | undefined, fallback: number, max: number): number {

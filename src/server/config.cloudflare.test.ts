@@ -7,8 +7,8 @@ describe('loadConfig, Cloudflare TURN', () => {
   });
 
   it('reads the TURN key id and API token together', () => {
-    const config = loadConfig({ CLOUDFLARE_TURN_KEY_ID: ' abc ', CLOUDFLARE_TURN_API_TOKEN: ' token ' });
-    expect(config.cloudflareTurn).toEqual({ keyId: 'abc', apiToken: 'token' });
+    const config = loadConfig({ CLOUDFLARE_TURN_KEY_ID: ' abcdefgh1234 ', CLOUDFLARE_TURN_API_TOKEN: ' token ' });
+    expect(config.cloudflareTurn).toEqual({ keyId: 'abcdefgh1234', apiToken: 'token' });
   });
 
   it('treats blank values as unset', () => {
@@ -27,7 +27,7 @@ describe('loadConfig, Cloudflare TURN', () => {
   });
 
   it('keeps ICE_SERVERS_JSON working next to it', () => {
-    const config = loadConfig({ ICE_SERVERS_JSON: '[]', CLOUDFLARE_TURN_KEY_ID: 'abc', CLOUDFLARE_TURN_API_TOKEN: 'token' });
+    const config = loadConfig({ ICE_SERVERS_JSON: '[]', CLOUDFLARE_TURN_KEY_ID: 'abcdefgh1234', CLOUDFLARE_TURN_API_TOKEN: 'token' });
     expect(config.iceServers).toEqual([]);
     expect(config.cloudflareTurn).toBeDefined();
   });

@@ -53,7 +53,7 @@ describe('createCloudflareTurn', () => {
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
     expect((init.headers as Record<string, string>)['content-type']).toBe('application/json');
-    expect(JSON.parse(init.body as string)).toEqual({ ttl: 86_400 });
+    expect(JSON.parse(init.body as string)).toEqual({ ttl: 7_200 });
   });
 
   it('returns validated servers and drops the port 53 URLs browsers block', async () => {
@@ -85,7 +85,7 @@ describe('createCloudflareTurn', () => {
   it('reuses credentials until half of their lifetime has passed, then refreshes', async () => {
     const { get, fetchImpl, clock } = setup();
     await get();
-    clock.time += 12 * 3_600_000 - 1;
+    clock.time += 3_600_000 - 1;
     await get();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     clock.time += 1;

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { iceServersSchema, type IceServerConfig } from '../shared/ice';
 import type { Logger } from './logger';
 
-const TTL_SECONDS = 86_400;
+const TTL_SECONDS = 7_200; // short: credentials are visible to every visitor
 const RETRY_AFTER_FAILURE_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
