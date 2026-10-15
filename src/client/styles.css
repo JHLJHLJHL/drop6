@@ -74,13 +74,17 @@ p {
   gap: 0 12px;
 }
 
-/* Owner name and email: right edge of the title row, right-aligned even when they wrap. */
+/*
+ * Signature on the right of the title row, two right-aligned lines:
+ *   LJH2026
+ *   honeymath.gbe@gmail.com
+ * The name is drawn over the top of the email's 44px touch target, so the header stays one row high.
+ */
 .owner {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0 4px;
+  flex-direction: column;
+  align-items: flex-end;
   margin-left: auto;
   color: var(--grey-700);
   font-size: calc(0.8125rem - 1px);
@@ -88,13 +92,18 @@ p {
 }
 
 .owner-name {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   font-weight: 600;
+  line-height: 16px;
+  pointer-events: none;
 }
 
 /* Plain text link look: no box, only an underline on hover. */
 .email-button {
   min-height: 44px;
-  padding: 0 4px;
+  padding: 20px 4px 6px;
   border: 0;
   background: transparent;
   color: var(--primary-strong);
@@ -185,7 +194,7 @@ p {
   padding: 0 4px;
   border-radius: 12px;
   color: var(--primary);
-  font-size: 1.25rem;
+  font-size: calc(1.25rem + 3px);
   font-weight: 800;
   letter-spacing: -0.02em;
   text-decoration: none;
