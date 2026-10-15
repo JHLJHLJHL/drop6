@@ -78,6 +78,11 @@ export class FileReceiver {
     void sink?.abort();
   }
 
+  /** Ends the transfer from outside (e.g. signaling reported the sender is gone). */
+  abort(reason: string): void {
+    void this.fail(reason);
+  }
+
   private send(message: ReceiverMessage): boolean {
     return trySend(this.channel, JSON.stringify(message));
   }

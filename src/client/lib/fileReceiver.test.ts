@@ -166,6 +166,17 @@ describe('FileReceiver', () => {
     expect(sink.aborted).toBe(1);
   });
 
+  it('abort(reason) lets the session end a transfer from outside (e.g. sender left)', async () => {
+    const { channel, receiver, last } = setup();
+    const sink = new FakeSink();
+    channel.emitMessage(meta(100));
+    receiver.accept(sink);
+    receiver.abort('sender-left');
+    await waitFor(() => sink.aborted === 1);
+    expect(last()).toMatchObject({ phase: 'failed', reason: 'sender-left' });
+    expect(channel.messagesOf('error')).toHaveLength(0);
+  });
+
   it('ignores file bytes that arrive before the user accepted', async () => {
     const { channel, last } = setup();
     channel.emitMessage(meta(100));
