@@ -6,6 +6,7 @@ import {
   joinAndReview,
   makeTestFile,
   newReceiverContext,
+  readCode,
   resetServer,
   sha256,
   type TestFile,
@@ -33,7 +34,7 @@ test('several files arrive as one zip that holds every file unchanged', async ({
   await page.locator('input[type=file]').setInputFiles(toInput(files));
   await expect(page.getByText(ZIP_NAME)).toBeVisible();
   await expect(page.getByText(/파일 3개 · /)).toBeVisible();
-  const code = ((await page.getByTestId('transfer-code').textContent()) ?? '').replace(/\s/g, '');
+  const code = await readCode(page);
 
   const context = await newReceiverContext(browser);
   const receiver = await context.newPage();
@@ -55,7 +56,7 @@ test('the zip also streams to disk through the File System Access API', async ({
   const files = threeFiles();
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(toInput(files));
-  const code = ((await page.getByTestId('transfer-code').textContent()) ?? '').replace(/\s/g, '');
+  const code = await readCode(page);
 
   const context = await newReceiverContext(browser, 'opfs');
   const receiver = await context.newPage();
@@ -77,7 +78,7 @@ test('three receivers each get the same zip', async ({ browser, page }) => {
   const files = threeFiles();
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(toInput(files));
-  const code = ((await page.getByTestId('transfer-code').textContent()) ?? '').replace(/\s/g, '');
+  const code = await readCode(page);
 
   const contexts = await Promise.all([1, 2, 3].map(() => newReceiverContext(browser)));
   const pages = await Promise.all(contexts.map((context) => context.newPage()));
@@ -93,7 +94,7 @@ test('a single file is still sent as it is, not zipped', async ({ browser, page 
   const file = makeTestFile(100 * 1024, 'plain.bin');
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(toInput([file]));
-  const code = ((await page.getByTestId('transfer-code').textContent()) ?? '').replace(/\s/g, '');
+  const code = await readCode(page);
   const context = await newReceiverContext(browser);
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);

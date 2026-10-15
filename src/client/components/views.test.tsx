@@ -142,10 +142,10 @@ const peerView = (patch: Partial<SenderPeerView>): SenderPeerView => ({
 describe('SenderView', () => {
   const noop = () => {};
 
-  it('shows the code, the countdown and the 0 / 3 headcount', () => {
+  it('shows the countdown and the 0 / 3 headcount, with the code only inside the message', () => {
     render(<SenderView state={senderState()} now={1_000_000 + 5 * MIN} onLeave={noop} onRenew={noop} />);
     expect(screen.getByRole('heading', { name: '코드를 알려주세요' })).toBeInTheDocument();
-    expect(screen.getByTestId('transfer-code')).toHaveTextContent('123 456');
+    expect(screen.getByTestId('share-message')).toHaveTextContent('코드는 123456 입니다.');
     expect(screen.getByRole('timer')).toHaveTextContent('25:00');
     expect(screen.getByText('0 / 3명')).toBeInTheDocument();
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
@@ -157,13 +157,12 @@ describe('SenderView', () => {
     expect(screen.getByRole('timer').closest('.countdown')).not.toBeNull();
   });
 
-  it('copies the code and confirms it', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    await userEvent.click(screen.getByRole('button', { name: '코드 복사하기' }));
-    expect(writeText).toHaveBeenCalledWith('123456');
-    expect(await screen.findByRole('button', { name: '복사했어요' })).toBeInTheDocument();
+  it('no longer shows the code on its own, nor a button to copy only the code', () => {
+    const { container } = render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.queryByTestId('transfer-code')).not.toBeInTheDocument();
+    expect(container.querySelector('.code')).toBeNull();
+    expect(screen.queryByRole('button', { name: '코드 복사하기' })).not.toBeInTheDocument();
+    expect(screen.queryByText('123 456')).not.toBeInTheDocument();
   });
 
   it('shows each receiver with ACK-based progress', () => {
@@ -188,7 +187,7 @@ describe('SenderView', () => {
     expect(screen.getByText(/코드가 만료됐어요/)).toBeInTheDocument();
     expect(screen.getByText(/진행 중인 전송은 계속돼요/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '새 코드 만들기' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '코드 복사하기' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '메시지 복사하기' })).not.toBeInTheDocument();
   });
 
   it('offers a new code after expiry once nothing is running', async () => {
@@ -485,7 +484,7 @@ describe('several files', () => {
 
 describe('message to hand over', () => {
   const noop = () => {};
-  const messageFor = (code: string) => `${window.location.origin} 에 접속해 파일을 받으세요.\n코드는 ${code} 입니다.`;
+  const messageFor = (code: string) => `${window.location.origin} 에 접속해 파일을 다운로드 하세요.\n코드는 ${code} 입니다.😊`;
 
   function mockClipboard(writeText = vi.fn().mockResolvedValue(undefined)) {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -498,31 +497,22 @@ describe('message to hand over', () => {
     expect(screen.getByTestId('share-message').textContent).toBe(messageFor('482913'));
   });
 
-  it('puts the section right under the 코드 복사하기 button, before the headcount', () => {
+  it('comes right after the title and before the headcount', () => {
     render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    const copyCode = screen.getByRole('button', { name: '코드 복사하기' });
+    const title = screen.getByRole('heading', { name: '코드를 알려주세요' });
     const section = screen.getByText('메시지 전달하기');
     const headcount = screen.getByText('0 / 3명');
-    expect(copyCode.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(title.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(section.compareDocumentPosition(headcount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('copies the whole message, line break included, and confirms on that button only', async () => {
+  it('copies the whole message, line break included, and confirms on the button', async () => {
     const writeText = mockClipboard();
     render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
     await userEvent.click(screen.getByRole('button', { name: '메시지 복사하기' }));
     expect(writeText).toHaveBeenCalledWith(messageFor('482913'));
     expect(await screen.findByRole('button', { name: '복사했어요' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '코드 복사하기' })).toBeInTheDocument(); // the other one is untouched
     expect(screen.getAllByRole('button', { name: '복사했어요' })).toHaveLength(1);
-  });
-
-  it('the code button still copies only the code', async () => {
-    const writeText = mockClipboard();
-    render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    await userEvent.click(screen.getByRole('button', { name: '코드 복사하기' }));
-    expect(writeText).toHaveBeenCalledWith('482913');
-    expect(screen.getByRole('button', { name: '메시지 복사하기' })).toBeInTheDocument();
   });
 
   it('asks to select the message by hand when copying is not allowed', async () => {
@@ -532,10 +522,11 @@ describe('message to hand over', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 직접 선택해서 복사해주세요');
   });
 
-  it('keeps the message copy secondary, so 코드 복사하기 stays the one main action', () => {
+  it('is the one main action of the screen now that the code has no button of its own', () => {
     render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
-    expect(screen.getByRole('button', { name: '메시지 복사하기' })).toHaveClass('btn-secondary');
-    expect(screen.getByRole('button', { name: '코드 복사하기' })).toHaveClass('btn-primary');
+    const copy = screen.getByRole('button', { name: '메시지 복사하기' });
+    expect(copy).toHaveClass('btn-primary');
+    expect(copy).not.toHaveClass('btn-secondary');
   });
 
   it('is gone once the code expired (it would hand out a dead code)', () => {

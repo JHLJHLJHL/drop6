@@ -73,10 +73,16 @@ export async function newReceiverContext(browser: Browser, mode: 'blob' | 'opfs'
 export async function startSending(page: Page, file: TestFile | string): Promise<string> {
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(typeof file === 'string' ? file : { name: file.name, mimeType: file.mimeType, buffer: file.buffer });
-  const code = page.getByTestId('transfer-code');
-  await expect(code).toBeVisible();
-  const text = (await code.textContent()) ?? '';
-  return text.replace(/\s/g, '');
+  return readCode(page);
+}
+
+/** The code is only shown inside the message to hand over ("코드는 123456 입니다"). */
+export async function readCode(page: Page): Promise<string> {
+  const message = page.getByTestId('share-message');
+  await expect(message).toBeVisible();
+  const match = /코드는 (\d{6}) 입니다/.exec(await message.innerText());
+  expect(match, 'the message contains the 6-digit code').not.toBeNull();
+  return match![1]!;
 }
 
 export async function enterCode(page: Page, code: string): Promise<void> {

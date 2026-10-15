@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { downloadedHash, makeTestFile, newReceiverContext, resetServer, startSending } from './helpers';
+import { downloadedHash, makeTestFile, newReceiverContext, readCode, resetServer, startSending } from './helpers';
 
 test.beforeEach(async ({ request }) => {
   await resetServer(request);
@@ -37,12 +37,12 @@ test.describe('360px mobile layout', () => {
     await expectTouchTargets(page);
 
     await startSending(page, makeTestFile(1024));
-    await expect(page.getByTestId('transfer-code')).toBeVisible();
+    await expect(page.getByTestId('share-message')).toBeVisible();
     await expectNoHorizontalScroll(page);
     await expectTouchTargets(page);
-    const code = await page.getByTestId('transfer-code').boundingBox();
-    expect(code!.x).toBeGreaterThanOrEqual(0);
-    expect(code!.x + code!.width).toBeLessThanOrEqual(360);
+    const message = await page.getByTestId('share-message').boundingBox();
+    expect(message!.x).toBeGreaterThanOrEqual(0);
+    expect(message!.x + message!.width).toBeLessThanOrEqual(360);
   });
 
   test('a receiver in review state fits as well', async ({ browser, page }) => {
@@ -89,10 +89,10 @@ test('the whole flow works with the keyboard alone and focus is always visible',
   const chooser = page.waitForEvent('filechooser');
   await page.keyboard.press('Enter');
   await (await chooser).setFiles(file);
-  await expect(page.getByTestId('transfer-code')).toBeVisible();
+  await expect(page.getByTestId('share-message')).toBeVisible();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: '코드 복사하기' })).toBeFocused();
-  const code = ((await page.getByTestId('transfer-code').textContent()) ?? '').replace(/\s/g, '');
+  await expect(page.getByRole('button', { name: '메시지 복사하기' })).toBeFocused();
+  const code = await readCode(page);
 
   // Receiver: the code field has focus on arrival; Enter submits, Tab reaches 파일 받기.
   const context = await newReceiverContext(browser);

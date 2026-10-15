@@ -1,6 +1,6 @@
 import { Fish } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { formatBytes, formatCode, formatCountdown, formatSpeed } from '../lib/format';
+import { formatBytes, formatCountdown, formatSpeed } from '../lib/format';
 import { describeBundleError, describeSenderClosed, describeSenderPeer } from '../lib/messages';
 import { isPeerActive, type SenderPeerView, type SenderState } from '../lib/senderSession';
 import { Button, FileCard, PrivacyNote, ProgressBar, TitleBlock, percentOf } from './ui';
@@ -39,17 +39,7 @@ function PeerRow({ peer, hasTurn }: { peer: SenderPeerView; hasTurn: boolean }) 
   );
 }
 
-function CopyButton({
-  text,
-  label,
-  failureHint,
-  variant = 'primary',
-}: {
-  text: string;
-  label: string;
-  failureHint: string;
-  variant?: 'primary' | 'secondary';
-}) {
+function CopyButton({ text, label, failureHint }: { text: string; label: string; failureHint: string }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -69,7 +59,7 @@ function CopyButton({
 
   return (
     <>
-      <Button variant={variant} onClick={() => void copy()}>
+      <Button onClick={() => void copy()}>
         {copied ? '복사했어요' : label}
       </Button>
       {failed && (
@@ -83,7 +73,7 @@ function CopyButton({
 
 /** The message a sender can paste into a chat: where to go and which code to type. */
 export function shareMessage(origin: string, code: string): string {
-  return `${origin} 에 접속해 파일을 받으세요.\n코드는 ${code} 입니다.`;
+  return `${origin} 에 접속해 파일을 다운로드 하세요.\n코드는 ${code} 입니다.😊`;
 }
 
 function ShareMessage({ code }: { code: string }) {
@@ -94,7 +84,7 @@ function ShareMessage({ code }: { code: string }) {
       <p className="message-box" data-testid="share-message">
         {message}
       </p>
-      <CopyButton text={message} label="메시지 복사하기" variant="secondary" failureHint="복사하지 못했어요. 메시지를 직접 선택해서 복사해주세요." />
+      <CopyButton text={message} label="메시지 복사하기" failureHint="복사하지 못했어요. 메시지를 직접 선택해서 복사해주세요." />
     </div>
   );
 }
@@ -204,15 +194,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
         <TitleBlock title="코드를 알려주세요" sub="받는 사람이 이 코드를 입력하면 연결돼요" />
       )}
 
-      {!expired && (
-        <>
-          <p className="code" data-testid="transfer-code" aria-label={`전송 코드 ${code.split('').join(' ')}`}>
-            {formatCode(code)}
-          </p>
-          <CopyButton text={code} label="코드 복사하기" failureHint="복사하지 못했어요. 코드를 직접 선택해서 복사해주세요." />
-          <ShareMessage code={code} />
-        </>
-      )}
+      {!expired && <ShareMessage code={code} />}
 
       {expired && idle && <Button onClick={onRenew}>새 코드 만들기</Button>}
 

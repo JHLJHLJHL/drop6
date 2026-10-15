@@ -8,20 +8,20 @@ test.beforeEach(async ({ request }) => {
 test('the sender can copy a ready-to-send message with the address and the code', async ({ page, context, baseURL }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const code = await startSending(page, makeTestFile(2048));
-  const expected = `${new URL(baseURL!).origin} 에 접속해 파일을 받으세요.\n코드는 ${code} 입니다.`;
+  const expected = `${new URL(baseURL!).origin} 에 접속해 파일을 다운로드 하세요.\n코드는 ${code} 입니다.😊`;
 
   await expect(page.getByText('메시지 전달하기')).toBeVisible();
   const box = page.getByTestId('share-message');
   await expect(box).toBeVisible();
   expect(await box.innerText()).toBe(expected); // two lines, as shown
 
-  // layout: code button, then the message section, then the headcount
-  const copyCode = (await page.getByRole('button', { name: '코드 복사하기' }).boundingBox())!;
+  // layout: title, then the message section (label, box, copy button), then the headcount
+  const title = (await page.getByRole('heading', { name: '코드를 알려주세요' }).boundingBox())!;
   const label = (await page.getByText('메시지 전달하기').boundingBox())!;
   const boxRect = (await box.boundingBox())!;
   const copyMessage = (await page.getByRole('button', { name: '메시지 복사하기' }).boundingBox())!;
   const headcount = (await page.getByText('접속한 사람').boundingBox())!;
-  expect(label.y).toBeGreaterThanOrEqual(copyCode.y + copyCode.height);
+  expect(label.y).toBeGreaterThanOrEqual(title.y + title.height);
   expect(boxRect.y).toBeGreaterThanOrEqual(label.y + label.height);
   expect(copyMessage.y).toBeGreaterThanOrEqual(boxRect.y + boxRect.height);
   expect(headcount.y).toBeGreaterThanOrEqual(copyMessage.y + copyMessage.height);
@@ -29,18 +29,27 @@ test('the sender can copy a ready-to-send message with the address and the code'
   await page.getByRole('button', { name: '메시지 복사하기' }).click();
   await expect(page.getByRole('button', { name: '복사했어요' })).toHaveCount(1);
   // Windows clipboards turn line breaks into CRLF, so compare with normalized line breaks
-  const clipboard = async () => (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
-  expect(await clipboard()).toBe(expected);
+  const clipboard = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
+  expect(clipboard).toBe(expected);
+});
 
-  // the code button still copies just the code
-  await page.getByRole('button', { name: '코드 복사하기' }).click();
-  expect(await clipboard()).toBe(code);
+test('the code is no longer shown on its own and has no copy button of its own', async ({ page }) => {
+  const code = await startSending(page, makeTestFile(2048));
+  await expect(page.getByTestId('transfer-code')).toHaveCount(0);
+  await expect(page.locator('.code')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '코드 복사하기' })).toHaveCount(0);
+  // the only place the digits appear in the card is the message
+  await expect(page.getByText(code, { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('share-message')).toContainText(`코드는 ${code} 입니다.`);
+  // so the message copy is the single, primary action
+  await expect(page.getByRole('button', { name: '메시지 복사하기' })).toHaveClass(/btn-primary/);
+  await expect(page.locator('.card .btn-primary')).toHaveCount(1);
 });
 
 test('a receiver can use the message: the address in it opens the app and the code in it works', async ({ page, browser, baseURL }) => {
   const code = await startSending(page, makeTestFile(2048));
   const message = await page.getByTestId('share-message').innerText();
-  const [, address, messageCode] = /^(\S+) 에 접속해 파일을 받으세요\.\n코드는 (\d{6}) 입니다\.$/.exec(message)!;
+  const [, address, messageCode] = /^(\S+) 에 접속해 파일을 다운로드 하세요\.\n코드는 (\d{6}) 입니다\.😊$/u.exec(message)!;
   expect(address).toBe(new URL(baseURL!).origin);
   expect(messageCode).toBe(code);
 
