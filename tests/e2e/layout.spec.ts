@@ -45,11 +45,56 @@ for (const viewport of [
   });
 }
 
-test('on a short page the footer sits at the bottom of the screen', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto('/');
-  const footer = await box(page, '.app-footer');
-  expect(footer.y + footer.height).toBeGreaterThanOrEqual(900 - 24);
+test.describe('the footer sits right under the card, not at the bottom of the screen', () => {
+  const VIEWPORT_HEIGHT = 1000; // tall enough that "pinned to the bottom" would be far below the card
+
+  async function expectFooterUnderCard(page: Page) {
+    const card = await box(page, '.card');
+    const footer = await box(page, '.app-footer');
+    const name = await textExtent(page, '.owner-name');
+    const cardBottom = card.y + card.height;
+    expect(footer.y - cardBottom).toBeGreaterThanOrEqual(0);
+    expect(footer.y - cardBottom).toBeLessThanOrEqual(8); // directly below
+    expect(name.top - cardBottom).toBeLessThanOrEqual(30); // the text itself is close, too
+    // short cards leave lots of empty screen below; the footer must not be pushed down into it
+    if (cardBottom < VIEWPORT_HEIGHT - 300) expect(footer.y + footer.height).toBeLessThan(VIEWPORT_HEIGHT - 150);
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: VIEWPORT_HEIGHT });
+  });
+
+  test('send screen and code entry', async ({ page }) => {
+    await page.goto('/');
+    await expectFooterUnderCard(page);
+    await page.goto('/receive');
+    await expectFooterUnderCard(page);
+  });
+
+  test('the screen with the code, with and without receivers', async ({ browser, page }) => {
+    const code = await startSending(page, makeTestFile(32 * 1024));
+    await expectFooterUnderCard(page);
+
+    const context = await newReceiverContext(browser);
+    const receiver = await context.newPage();
+    await joinAndReview(receiver, code);
+    await expect(page.locator('.peer-name')).toHaveCount(1);
+    await expectFooterUnderCard(page); // the card grew, the footer followed
+    await expectFooterUnderCard(receiver); // receiver review screen
+    await context.close();
+  });
+
+  test('error screens', async ({ browser }) => {
+    const context = await newReceiverContext(browser);
+    const receiver = await context.newPage();
+    await receiver.setViewportSize({ width: 1280, height: VIEWPORT_HEIGHT });
+    await receiver.goto('/receive');
+    await receiver.getByLabel('전송 코드').fill('000000');
+    await receiver.getByRole('button', { name: '연결하기' }).click();
+    await expect(receiver.getByRole('heading', { name: '없는 코드예요' })).toBeVisible();
+    await expectFooterUnderCard(receiver);
+    await context.close();
+  });
 });
 
 test('the send / receive toggle is above the card and switches screens', async ({ page }) => {
