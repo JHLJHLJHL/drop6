@@ -130,6 +130,14 @@ export class FileSender {
             }
             this.payload = this.separate.source;
           }
+          // A receiver picking up a dropped connection already holds the first `from` bytes.
+          const from = message.from ?? 0;
+          if (from > this.payload.size) {
+            this.finish('failed', 'protocol');
+            break;
+          }
+          this.sent = from;
+          this.acked = from;
           this.phase = 'sending';
           this.onChange(this.snapshot);
           void this.pump();

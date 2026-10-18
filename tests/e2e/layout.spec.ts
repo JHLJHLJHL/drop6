@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { SPECIES_NAMES } from '../../src/client/lib/speciesNames';
-import { joinAndReview, makeTestFile, newReceiverContext, resetServer, startSending } from './helpers';
+import { chooseSaveLocation, joinAndReview, makeTestFile, newReceiverContext, resetServer, startSending } from './helpers';
 
 test.beforeEach(async ({ request }) => {
   await resetServer(request);
@@ -221,6 +221,7 @@ test('every receive step is centered: review, receiving and canceled', async ({ 
   await expect(receiver.getByText('보내는 사람이 보낸 파일 정보예요.')).toBeVisible();
   await expect(receiver.getByText(PRIVACY)).toHaveCSS('text-align', 'center');
 
+  await chooseSaveLocation(receiver);
   await receiver.getByRole('button', { name: '파일 받기' }).click();
   await centered('파일을 받는 중이에요');
   await receiver.getByRole('button', { name: '받기 취소' }).click();

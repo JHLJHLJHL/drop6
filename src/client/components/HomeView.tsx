@@ -52,14 +52,15 @@ export function HomeView({ onFiles }: HomeViewProps) {
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
       >
-        <p>여기에 파일을 끌어다 놓아도 돼요</p>
+        {/* The refusal takes the hint's place, so the card keeps its height. */}
+        {error ? (
+          <p className="error-text" role="alert">
+            {error}
+          </p>
+        ) : (
+          <p>여기에 파일을 끌어다 놓아도 돼요</p>
+        )}
       </div>
-
-      {error && (
-        <p className="error-text" role="alert">
-          {error}
-        </p>
-      )}
 
       <input
         ref={inputRef}

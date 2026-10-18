@@ -90,6 +90,9 @@ test('the whole flow works with the keyboard alone and focus is always visible',
   await page.keyboard.press('Enter');
   await (await chooser).setFiles(file);
   await expect(page.getByTestId('share-message')).toBeVisible();
+  // The code card copies the code, so it comes first; the message's copy icon follows.
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('transfer-code')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: '메시지 복사하기' })).toBeFocused();
   const code = await readCode(page);

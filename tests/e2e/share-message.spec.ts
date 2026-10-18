@@ -31,7 +31,7 @@ test('the sender gets a ready-to-send message and can copy it with the icon', as
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const code = await startSending(page, makeTestFile(2048));
   const origin = new URL(baseURL!).origin;
-  const expected = `${origin} 에 접속해 파일을 다운로드 하세요.\n코드는 ${code} 입니다.😊`;
+  const expected = `${origin} 에 접속해 파일을 다운로드 하세요.😊\n코드는 ${code}`;
 
   const label = page.locator('.share .section-label');
   expect(await label.innerText()).toBe('메시지 전달하기(복사해 사용하거나 QR코드를 촬영하세요)');
@@ -53,8 +53,9 @@ test('the big code is still shown, above the message', async ({ page }) => {
   const big = page.getByTestId('transfer-code');
   await expect(big).toBeVisible();
   expect(await big.innerText()).toBe(`${code.slice(0, 3)} ${code.slice(3)}`);
-  await expect(big).toHaveAccessibleName(`전송 코드 ${code.split('').join(' ')}`);
-  await expect(page.getByRole('button', { name: '코드 복사하기' })).toHaveCount(0); // no separate button for it
+  // the card itself is the button that copies the code; readers get the plain digits
+  await expect(big).toHaveAccessibleName(`전송 코드 ${code.split('').join(' ')} 복사`);
+  await expect(page.getByRole('button', { name: '코드 복사하기' })).toHaveCount(0); // no second button just for the code
 
   const title = await box(page, 'h1');
   const codeBox = await box(page, '[data-testid=transfer-code]');
@@ -138,7 +139,7 @@ test('a receive link with a wrong code shows the usual explanation', async ({ br
 test('a receiver can still use the message: its address and code work', async ({ page, browser, baseURL }) => {
   const code = await startSending(page, makeTestFile(2048));
   const message = await page.getByTestId('share-message').innerText();
-  const [, address, messageCode] = /^(\S+) 에 접속해 파일을 다운로드 하세요\.\n코드는 (\d{6}) 입니다\.😊$/u.exec(message)!;
+  const [, address, messageCode] = /^(\S+) 에 접속해 파일을 다운로드 하세요\.😊\n코드는 (\d{6})$/u.exec(message)!;
   expect(address).toBe(new URL(baseURL!).origin);
   expect(messageCode).toBe(code);
 
@@ -161,7 +162,7 @@ test.describe('touch phone', () => {
     await expect(icon).toHaveCSS('opacity', '1');
     await icon.tap();
     await expect(page.locator('.copy-icon svg.lucide-check')).toBeVisible();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`코드는 ${code} 입니다.`);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`코드는 ${code}`);
   });
 });
 

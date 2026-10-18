@@ -106,17 +106,172 @@ describe('FileReceiver', () => {
     expect(last().phase).toBe('canceled');
   });
 
-  it('aborts the stream when the connection drops mid-transfer', async () => {
+  it('keeps showing the file info when the connection drops before the user decided', async () => {
+    const { channel, last } = setup();
+    channel.emitMessage(meta(CHUNK_SIZE * 4));
+    channel.close();
+    await flush(30);
+    expect(last().phase).toBe('review');
+  });
+
+  it('waits for the sender instead of failing when the user accepts on a connection that already dropped', async () => {
     const { channel, receiver, last } = setup();
     const sink = new FakeSink();
     channel.emitMessage(meta(CHUNK_SIZE * 4));
-    receiver.accept(sink);
-    channel.emitMessage(chunk(CHUNK_SIZE));
     channel.close();
-    await waitFor(() => last().phase === 'failed');
-    expect(last().reason).toBe('connection-lost');
-    expect(sink.aborted).toBe(1);
-    expect(sink.closed).toBe(0);
+    await flush(10);
+    receiver.accept(sink);
+    expect(last().phase).toBe('paused');
+    expect(sink.aborted).toBe(0);
+
+    const next = new FakeChannel();
+    receiver.resume(next);
+    next.emitMessage(meta(CHUNK_SIZE * 4));
+    await waitFor(() => last().phase === 'receiving');
+    expect(next.messagesOf('accept')).toEqual([{ t: 'accept', from: 0 }]);
+  });
+
+  describe('a connection that drops mid-transfer', () => {
+    const size = CHUNK_SIZE * 4;
+    const accepts = (channel: FakeChannel) => channel.messagesOf('accept');
+
+    /** Accepts, receives one chunk and lets the connection drop. */
+    async function dropAfterOneChunk() {
+      const s = setup();
+      const sink = new FakeSink();
+      s.channel.emitMessage(meta(size));
+      s.receiver.accept(sink);
+      s.channel.emitMessage(chunk(CHUNK_SIZE, 1));
+      await waitFor(() => sink.written.length === 1);
+      s.channel.close();
+      await waitFor(() => s.last().phase === 'paused');
+      return { ...s, sink };
+    }
+
+    it('pauses instead of failing, keeping the sink open and what it holds', async () => {
+      const { last, sink } = await dropAfterOneChunk();
+      expect(last()).toMatchObject({ phase: 'paused', savedBytes: CHUNK_SIZE });
+      expect(sink.aborted).toBe(0);
+      expect(sink.closed).toBe(0);
+    });
+
+    it('continues right after the saved bytes when the sender comes back on a new connection', async () => {
+      const { receiver, sink, last } = await dropAfterOneChunk();
+      const next = new FakeChannel();
+      receiver.resume(next);
+      next.emitMessage(meta(size));
+      await waitFor(() => last().phase === 'receiving');
+      expect(accepts(next)).toEqual([{ t: 'accept', from: CHUNK_SIZE }]);
+
+      next.emitMessage(chunk(CHUNK_SIZE, 2));
+      next.emitMessage(chunk(CHUNK_SIZE, 3));
+      next.emitMessage(chunk(CHUNK_SIZE, 4));
+      await waitFor(() => sink.written.length === 4);
+      next.emitMessage(complete(size));
+      await waitFor(() => last().phase === 'done');
+      expect(sink.bytes.length).toBe(size);
+      expect(sink.bytes[0]).toBe(1);
+      expect(sink.bytes[size - 1]).toBe(4);
+      expect(sink.closed).toBe(1);
+      expect(sink.aborted).toBe(0);
+    });
+
+    it('asks for the files back to back again when that is how it was receiving', async () => {
+      const files = [{ name: 'a.txt', size: CHUNK_SIZE * 2 }, { name: 'b.txt', size: CHUNK_SIZE * 2 }];
+      const first = new FakeChannel();
+      const snapshots: ReceiveSnapshot[] = [];
+      const receiver = new FileReceiver(first, { memoryOnly: false }, (s) => snapshots.push(s));
+      const sink = new FakeSink();
+      const bundle = JSON.stringify({ t: 'meta', name: 'bundle.zip', size: 999, mime: 'application/zip', files });
+      first.emitMessage(bundle);
+      receiver.accept(sink, 'files');
+      first.emitMessage(chunk(CHUNK_SIZE));
+      await waitFor(() => sink.written.length === 1);
+      first.close();
+      await waitFor(() => snapshots.at(-1)!.phase === 'paused');
+
+      const next = new FakeChannel();
+      receiver.resume(next);
+      next.emitMessage(bundle);
+      await waitFor(() => snapshots.at(-1)!.phase === 'receiving');
+      expect(accepts(next)).toEqual([{ t: 'accept', as: 'files', from: CHUNK_SIZE }]);
+    });
+
+    it('waits on without failing when the new connection dies before it got going', async () => {
+      const { receiver, last } = await dropAfterOneChunk();
+      const dead = new FakeChannel();
+      receiver.resume(dead);
+      dead.close();
+      await flush(30);
+      expect(last().phase).toBe('paused');
+
+      const next = new FakeChannel();
+      receiver.resume(next);
+      next.emitMessage(meta(size));
+      await waitFor(() => last().phase === 'receiving');
+    });
+
+    it('does not take bytes that arrive before the sender was asked to continue', async () => {
+      const { receiver, sink, last } = await dropAfterOneChunk();
+      const next = new FakeChannel();
+      receiver.resume(next);
+      next.emitMessage(chunk(CHUNK_SIZE, 9));
+      await flush(30);
+      expect(sink.written).toHaveLength(1);
+      expect(last().phase).toBe('paused');
+    });
+
+    it('fails when the sender announces a different file', async () => {
+      const { receiver, sink, last } = await dropAfterOneChunk();
+      const next = new FakeChannel();
+      receiver.resume(next);
+      next.emitMessage(JSON.stringify({ t: 'meta', name: 'other.png', size, mime: 'image/png' }));
+      await waitFor(() => last().phase === 'failed');
+      expect(last().reason).toBe('protocol');
+      expect(sink.aborted).toBe(1);
+    });
+
+    it('lets the user cancel while waiting, which throws the partial file away', async () => {
+      const { receiver, sink, last } = await dropAfterOneChunk();
+      receiver.cancel();
+      await waitFor(() => sink.aborted === 1);
+      expect(last().phase).toBe('canceled');
+      expect(sink.closed).toBe(0);
+    });
+
+    it('throws the partial file away when the room is given up while waiting', async () => {
+      const { receiver, sink, last } = await dropAfterOneChunk();
+      receiver.abort('sender-left');
+      await waitFor(() => last().phase === 'failed');
+      expect(last().reason).toBe('sender-left');
+      expect(sink.aborted).toBe(1);
+    });
+
+    it('still completes the file when everything was saved before the drop, even if "complete" never arrived', async () => {
+      const s = setup();
+      const sink = new FakeSink();
+      s.channel.emitMessage(meta(CHUNK_SIZE));
+      s.receiver.accept(sink);
+      s.channel.emitMessage(chunk(CHUNK_SIZE));
+      await waitFor(() => sink.written.length === 1);
+      s.channel.close();
+      await waitFor(() => s.last().phase === 'done');
+      expect(sink.closed).toBe(1);
+    });
+
+    it('can be suspended from outside when the sender starts over with a connection of its own', async () => {
+      const s = setup();
+      const sink = new FakeSink();
+      s.channel.emitMessage(meta(size));
+      s.receiver.accept(sink);
+      s.channel.emitMessage(chunk(CHUNK_SIZE));
+      await waitFor(() => sink.written.length === 1);
+      s.receiver.suspend();
+      expect(s.last().phase).toBe('paused');
+      s.channel.emitMessage(chunk(CHUNK_SIZE)); // late bytes of the old connection are ignored
+      await flush(20);
+      expect(sink.written).toHaveLength(1);
+    });
   });
 
   it('aborts the stream, tells the sender and fails when storing a chunk fails', async () => {

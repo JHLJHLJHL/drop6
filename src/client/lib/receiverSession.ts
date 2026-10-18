@@ -5,7 +5,7 @@ import { FileReceiver, type ReceiveSnapshot } from './fileReceiver';
 import { fetchIceServers } from './iceConfig';
 import { CONNECT_TIMEOUT_MS, CandidateQueue, candidateSignal, createPeerConnection } from './rtc';
 import { connectSignaling, type SignalingClient } from './signalingClient';
-import { BlobSink, hasFileSystemAccess, memorySplitSink, pickDirectorySink, pickFileSystemSink } from './sink';
+import { BlobSink, hasFileSystemAccess, memorySplitSink, needsPicker, pickDirectorySink, pickFileSystemSink } from './sink';
 import { SpeedMeter } from './speedMeter';
 import { Store } from './store';
 
@@ -15,6 +15,8 @@ export type ReceiverPhase =
   | 'review'
   | 'blocked'
   | 'receiving'
+  /** The sender's connection dropped; waiting for it to come back and continue where this left off. */
+  | 'paused'
   | 'done'
   | 'canceled'
   | 'failed'
@@ -83,14 +85,15 @@ export class ReceiverSession extends Store<ReceiverState> {
   /**
    * The user confirmed. Must be called straight from the click handler: the
    * save dialog needs user activation, so nothing may be awaited before it.
+   * `chooseLocation` asks for the save dialog; otherwise the browser downloads into its downloads folder.
    */
-  async accept(delivery: Delivery = 'zip'): Promise<void> {
+  async accept(delivery: Delivery = 'zip', chooseLocation = false): Promise<void> {
     const { meta, phase } = this.getState();
     if (!meta || phase !== 'review' || !this.receiver) return;
     const files = delivery === 'files' ? meta.files : undefined;
     if (delivery === 'files' && !files) return;
 
-    if (!hasFileSystemAccess()) {
+    if (!needsPicker(meta, delivery, chooseLocation)) {
       this.update({ delivery });
       this.receiver.accept(files ? memorySplitSink(files) : new BlobSink(meta), delivery);
       return;
@@ -163,13 +166,37 @@ export class ReceiverSession extends Store<ReceiverState> {
     };
     pc.ondatachannel = ({ channel }) => {
       channel.binaryType = 'arraybuffer';
+      if (this.receiver?.isPaused) {
+        this.receiver.resume(channel); // the sender is back: continue after what is already saved
+        return;
+      }
       this.receiver = new FileReceiver(channel, { memoryOnly: !hasFileSystemAccess() }, (snapshot) => this.onTransfer(snapshot));
     };
     return { pc, queue: this.queue };
   }
 
+  /**
+   * The sender starts over with a new connection (it came back, or its old one broke). What was being
+   * received is kept and picked up on the new connection; a transfer that never began is simply replaced.
+   */
+  private replaceConnection(): void {
+    if (!this.pc) return;
+    this.receiver?.suspend();
+    if (this.receiver && !this.receiver.isPaused) {
+      this.receiver.detach();
+      this.receiver = undefined;
+    }
+    this.pc.onicecandidate = null;
+    this.pc.onconnectionstatechange = null;
+    this.pc.ondatachannel = null;
+    this.pc.close();
+    this.pc = undefined;
+    this.queue = undefined;
+  }
+
   private async handleSignal(data: SignalData): Promise<void> {
     try {
+      if (data.kind === 'offer') this.replaceConnection();
       const { pc, queue } = this.ensurePeerConnection();
       if (data.kind === 'offer') {
         await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
@@ -209,6 +236,9 @@ export class ReceiverSession extends Store<ReceiverState> {
       case 'receiving':
         this.meter.record(savedBytes);
         this.update({ phase: 'receiving', meta, savedBytes, speed: this.meter.bytesPerSecond });
+        break;
+      case 'paused':
+        this.update({ phase: 'paused', meta, savedBytes, speed: 0 });
         break;
       case 'done':
         this.update({ phase: 'done', meta, savedBytes, speed: 0 });

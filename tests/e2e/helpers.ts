@@ -66,14 +66,41 @@ export async function useOpfsSaveDialog(context: BrowserContext, writeDelayMs = 
 /** The folder the fake folder dialog "picks"; read it back with readPickedFolder. */
 export const PICKED_FOLDER = 'picked-folder';
 
-/** Makes the folder dialog hand back an OPFS folder named PICKED_FOLDER, so files streamed into it can be read back. */
-export async function useOpfsFolderDialog(context: BrowserContext): Promise<void> {
-  await context.addInitScript((folder: string) => {
-    (window as unknown as Record<string, unknown>).showDirectoryPicker = async () => {
-      const root = await navigator.storage.getDirectory();
-      return root.getDirectoryHandle(folder, { create: true });
-    };
-  }, PICKED_FOLDER);
+/**
+ * Makes the folder dialog hand back an OPFS folder named PICKED_FOLDER, so files streamed into it can be read back.
+ * `writeDelayMs` slows every write down.
+ */
+export async function useOpfsFolderDialog(context: BrowserContext, writeDelayMs = 0): Promise<void> {
+  await context.addInitScript(
+    ({ folder, delayMs }: { folder: string; delayMs: number }) => {
+      (window as unknown as Record<string, unknown>).showDirectoryPicker = async () => {
+        const root = await navigator.storage.getDirectory();
+        const dir = await root.getDirectoryHandle(folder, { create: true });
+        if (!delayMs) return dir;
+        const pause = () => new Promise((resolve) => setTimeout(resolve, delayMs));
+        return {
+          name: dir.name,
+          getFileHandle: async (name: string, options?: { create?: boolean }) => {
+            const handle = await dir.getFileHandle(name, options);
+            return {
+              createWritable: async () => {
+                const real = await handle.createWritable();
+                return {
+                  write: async (chunk: ArrayBuffer) => {
+                    await pause();
+                    await real.write(chunk);
+                  },
+                  close: () => real.close(),
+                  abort: () => real.abort(),
+                };
+              },
+            };
+          },
+        };
+      };
+    },
+    { folder: PICKED_FOLDER, delayMs: writeDelayMs },
+  );
 }
 
 /** Every file in the fake picked folder: name -> bytes. */
@@ -96,7 +123,7 @@ export async function newReceiverContext(browser: Browser, mode: 'blob' | 'opfs'
     await useBlobDownloads(context);
   } else {
     await useOpfsSaveDialog(context, writeDelayMs);
-    await useOpfsFolderDialog(context);
+    await useOpfsFolderDialog(context, writeDelayMs);
   }
   return context;
 }
@@ -108,11 +135,11 @@ export async function startSending(page: Page, file: TestFile | string): Promise
   return readCode(page);
 }
 
-/** The code is only shown inside the message to hand over ("코드는 123456 입니다"). */
+/** The code is only shown inside the message to hand over ("코드는 123456"). */
 export async function readCode(page: Page): Promise<string> {
   const message = page.getByTestId('share-message');
   await expect(message).toBeVisible();
-  const match = /코드는 (\d{6}) 입니다/.exec(await message.innerText());
+  const match = /코드는 (\d{6})/.exec(await message.innerText());
   expect(match, 'the message contains the 6-digit code').not.toBeNull();
   return match![1]!;
 }
@@ -127,6 +154,13 @@ export async function enterCode(page: Page, code: string): Promise<void> {
 export async function joinAndReview(page: Page, code: string): Promise<void> {
   await enterCode(page, code);
   await expect(page.getByRole('heading', { name: '이 파일을 받을까요?' })).toBeVisible();
+}
+
+/** Turns on 위치 지정 다운로드, so receiving opens the (fake) save dialog instead of a plain download. */
+export async function chooseSaveLocation(page: Page): Promise<void> {
+  const locationSwitch = page.getByRole('switch', { name: /위치 지정 다운로드/ });
+  await locationSwitch.setChecked(true);
+  await expect(locationSwitch).toBeChecked();
 }
 
 export async function acceptAndDownload(page: Page, button = '파일 받기'): Promise<Download> {

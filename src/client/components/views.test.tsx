@@ -72,6 +72,31 @@ describe('HomeView', () => {
     expect(onFiles).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('폴더');
   });
+
+  it('says so in the drop field itself, in place of the hint, so the card does not grow', () => {
+    const { container } = render(<HomeView onFiles={() => {}} />);
+    const card = container.querySelector('.card')!;
+    const before = card.children.length;
+    expect(screen.getByText('여기에 파일을 끌어다 놓아도 돼요')).toBeInTheDocument();
+
+    const folder = { webkitGetAsEntry: () => ({ isDirectory: true }) };
+    fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [new File([], 'dir')], items: [folder] } });
+
+    expect(within(screen.getByTestId('dropzone')).getByRole('alert')).toHaveTextContent('폴더는 보낼 수 없어요');
+    expect(screen.queryByText('여기에 파일을 끌어다 놓아도 돼요')).not.toBeInTheDocument();
+    expect(card.children.length).toBe(before);
+  });
+
+  it('brings the hint back once files were picked after a refusal', () => {
+    const onFiles = vi.fn();
+    render(<HomeView onFiles={onFiles} />);
+    const folder = { webkitGetAsEntry: () => ({ isDirectory: true }) };
+    fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [new File([], 'dir')], items: [folder] } });
+    fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [new File(['x'], 'x.txt')], items: [] } });
+    expect(onFiles).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('여기에 파일을 끌어다 놓아도 돼요')).toBeInTheDocument();
+  });
 });
 
 describe('CodeEntryView', () => {
@@ -127,6 +152,7 @@ function senderState(patch: Partial<SenderState> = {}): SenderState {
     maxReceivers: 3,
     connectedCount: 0,
     peers: [],
+    reconnecting: false,
     hasTurn: true,
     ...patch,
   };
@@ -154,20 +180,93 @@ describe('SenderView', () => {
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
   });
 
+  it('warns under the title that closing the window stops the transfer', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    const sub = screen.getByRole('heading', { name: '코드를 알려주세요' }).parentElement!.querySelector('.sub')!;
+    expect(sub.textContent).toBe('받는 사람이 이 코드를 입력하면 연결돼요\n(이 창을 닫으면 전송이 멈춤)');
+  });
+
+  it('keeps the screen on and says what happens when the connection drops', () => {
+    const { container } = render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    const notes = [...container.querySelectorAll('.note:not(.privacy-note)')].map((note) => note.textContent);
+    expect(notes).toEqual(['화면을 켜 두세요. 끊겨도 돌아오면 이어서 보내요']);
+  });
+
+  it('has no use for that note once the code expired and nothing is running', () => {
+    const { container } = render(<SenderView state={senderState()} now={1_000_000 + 31 * MIN} onLeave={noop} onRenew={noop} />);
+    expect(container.querySelector('.note:not(.privacy-note)')).toBeNull();
+  });
+
+  it('says it is reconnecting while the connection to the server is being re-established, and keeps the code', () => {
+    render(<SenderView state={senderState({ reconnecting: true })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(within(screen.getAllByRole('status')[0]!).getByText('연결이 끊겨서 다시 연결하는 중이에요')).toBeInTheDocument();
+    expect(screen.getByTestId('transfer-code')).toHaveTextContent('123 456');
+  });
+
+  it('shows nothing about reconnecting while all is well', () => {
+    render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.queryByText('연결이 끊겨서 다시 연결하는 중이에요')).not.toBeInTheDocument();
+  });
+
+  it('shows a receiver whose connection dropped as reconnecting, not failed, with its progress kept', () => {
+    const state = senderState({ peers: [peerView({ phase: 'paused', ackedBytes: 50, totalBytes: 100 })] });
+    render(<SenderView state={state} now={1_000_000} onLeave={noop} onRenew={noop} />);
+    expect(screen.getByText('연결이 끊겨서 다시 연결하는 중이에요')).toBeInTheDocument();
+  });
+
   it('puts the countdown on the right and centers the heading block', () => {
     render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
     expect(screen.getByRole('heading', { name: '코드를 알려주세요' }).closest('.heading-center')).not.toBeNull();
     expect(screen.getByRole('timer').closest('.countdown')).not.toBeNull();
   });
 
-  it('shows the code large, as plain digits for screen readers, and has no button just for the code', () => {
+  it('shows the code large, as plain digits for screen readers, on a card that copies it when pressed', () => {
     render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
     const code = screen.getByTestId('transfer-code');
     expect(code).toHaveClass('code');
-    expect(code).toHaveAttribute('aria-label', '전송 코드 1 2 3 4 5 6');
-    // a paragraph cannot carry a name, so the digits are read as one labeled figure
-    expect(screen.getByRole('img', { name: '전송 코드 1 2 3 4 5 6' })).toBe(code);
-    expect(screen.queryByRole('button', { name: '코드 복사하기' })).not.toBeInTheDocument();
+    expect(code).toHaveAttribute('aria-label', '전송 코드 1 2 3 4 5 6 복사');
+    expect(screen.getByRole('button', { name: '전송 코드 1 2 3 4 5 6 복사' })).toBe(code);
+  });
+
+  describe('code card', () => {
+    const mockClipboard = (writeText = vi.fn().mockResolvedValue(undefined)) => {
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      return writeText;
+    };
+    const card = () => screen.getByTestId('transfer-code');
+
+    it('copies the plain 6 digits and says 복사되었습니다', async () => {
+      const writeText = mockClipboard();
+      render(<SenderView state={senderState({ code: '482913' })} now={1_000_000} onLeave={noop} onRenew={noop} />);
+      await userEvent.click(card());
+      expect(writeText).toHaveBeenCalledWith('482913');
+      expect(await screen.findByText('복사되었습니다')).toBeInTheDocument();
+    });
+
+    it('lets the message go away again after a moment', async () => {
+      mockClipboard();
+      vi.useFakeTimers();
+      try {
+        render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+        await act(async () => {
+          fireEvent.click(card());
+        });
+        expect(screen.getByRole('status')).toHaveTextContent('복사되었습니다');
+        act(() => {
+          vi.advanceTimersByTime(2_500);
+        });
+        expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('reports when the clipboard is not available', async () => {
+      mockClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+      render(<SenderView state={senderState()} now={1_000_000} onLeave={noop} onRenew={noop} />);
+      await userEvent.click(card());
+      expect(await screen.findByText('복사하지 못했어요')).toBeInTheDocument();
+    });
   });
 
   it('shows each receiver with ACK-based progress', () => {
@@ -239,7 +338,50 @@ describe('ReceiverView', () => {
     expect(screen.getByText(/image\/png/)).toBeInTheDocument();
     expect(onAccept).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: '파일 받기' }));
-    expect(onAccept).toHaveBeenCalled();
+    expect(onAccept).toHaveBeenCalledWith('zip', false);
+  });
+
+  describe('location switch', () => {
+    const locationSwitch = () => screen.getByRole('switch', { name: /위치 지정 다운로드/ });
+
+    it('sits right above 파일 받기, is off by default and says the default is the downloads folder', () => {
+      render(<ReceiverView state={receiverState({ meta })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(locationSwitch()).not.toBeChecked();
+      expect(locationSwitch().closest('label')).toHaveTextContent('위치 지정 다운로드(기본: 다운로드 폴더)');
+      const button = screen.getByRole('button', { name: '파일 받기' });
+      expect(locationSwitch().compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(button.previousElementSibling).toBe(locationSwitch().closest('label'));
+    });
+
+    it('asks for the save dialog only once it is switched on', async () => {
+      const onAccept = vi.fn();
+      render(<ReceiverView state={receiverState({ meta })} onAccept={onAccept} onCancel={noop} onRetry={noop} />);
+      await userEvent.click(locationSwitch());
+      expect(locationSwitch()).toBeChecked();
+      await userEvent.click(screen.getByRole('button', { name: '파일 받기' }));
+      expect(onAccept).toHaveBeenLastCalledWith('zip', true);
+      await userEvent.click(locationSwitch());
+      await userEvent.click(screen.getByRole('button', { name: '파일 받기' }));
+      expect(onAccept).toHaveBeenLastCalledWith('zip', false);
+    });
+
+    it('is not offered in a browser that can only download', () => {
+      render(<ReceiverView state={receiverState({ meta, mode: 'memory' })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    });
+
+    it('warns that files over 500MB need the dialog while the switch is off', async () => {
+      const big = { ...meta, size: 600 * 1024 * 1024 };
+      render(<ReceiverView state={receiverState({ meta: big })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText(/500MB를 넘는 파일은 저장 위치를 직접 골라야 해요/)).toBeInTheDocument();
+      await userEvent.click(locationSwitch());
+      expect(screen.queryByText(/500MB를 넘는 파일/)).not.toBeInTheDocument();
+    });
+
+    it('has no explanation to give for a normal file with the switch off', () => {
+      const { container } = render(<ReceiverView state={receiverState({ meta })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(container.querySelector('.note:not(.privacy-note)')).toBeNull();
+    });
   });
 
   it('explains the in-memory download and its 500MB limit before the transfer starts', () => {
@@ -266,6 +408,18 @@ describe('ReceiverView', () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
+  it('waits for the sender when the connection dropped, with the progress so far and a way out', async () => {
+    const onCancel = vi.fn();
+    const state = receiverState({ phase: 'paused', meta, savedBytes: 1.5 * 1024 * 1024 });
+    render(<ReceiverView state={state} onAccept={noop} onCancel={onCancel} onRetry={noop} />);
+    expect(screen.getByRole('heading')).toHaveTextContent('연결이 끊겼어요');
+    expect(screen.getByText('보내는 사람이 돌아오면 이어서 받아요')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+    expect(screen.getByText(/50% · 1\.5 MB \/ 3 MB/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '받기 취소' }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
   it('tells where the file was saved', () => {
     const state = receiverState({ phase: 'done', meta, savedBytes: meta.size, savedName: 'my-photo.png' });
     render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
@@ -278,6 +432,12 @@ describe('ReceiverView', () => {
     const state = receiverState({ phase: 'done', meta, savedBytes: meta.size, mode: 'memory' });
     render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
     expect(screen.getByText(/다운로드 폴더/)).toBeInTheDocument();
+  });
+
+  it('points to the downloads folder when no location was picked, even where a dialog was possible', () => {
+    const state = receiverState({ phase: 'done', meta, savedBytes: meta.size, mode: 'file-system' });
+    render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
+    expect(screen.getByText(/다운로드 폴더를 확인해주세요/)).toBeInTheDocument();
   });
 
   describe('several files', () => {
@@ -301,9 +461,22 @@ describe('ReceiverView', () => {
 
       expect(onAccept).not.toHaveBeenCalled();
       await userEvent.click(screen.getByRole('button', { name: 'zip 하나로 받기' }));
-      expect(onAccept).toHaveBeenLastCalledWith('zip');
+      expect(onAccept).toHaveBeenLastCalledWith('zip', false);
       await userEvent.click(screen.getByRole('button', { name: '파일 따로 받기' }));
-      expect(onAccept).toHaveBeenLastCalledWith('files');
+      expect(onAccept).toHaveBeenLastCalledWith('files', false);
+    });
+
+    it('passes the location switch along, which sits above both buttons', async () => {
+      const onAccept = vi.fn();
+      render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={onAccept} onCancel={noop} onRetry={noop} />);
+      const toggle = screen.getByRole('switch', { name: /위치 지정 다운로드/ });
+      const zip = screen.getByRole('button', { name: 'zip 하나로 받기' });
+      expect(toggle.compareDocumentPosition(zip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await userEvent.click(toggle);
+      await userEvent.click(zip);
+      expect(onAccept).toHaveBeenLastCalledWith('zip', true);
+      await userEvent.click(screen.getByRole('button', { name: '파일 따로 받기' }));
+      expect(onAccept).toHaveBeenLastCalledWith('files', true);
     });
 
     it('does not show the plain single-file button', () => {
@@ -311,9 +484,17 @@ describe('ReceiverView', () => {
       expect(screen.queryByRole('button', { name: '파일 받기' })).not.toBeInTheDocument();
     });
 
-    it('explains the folder to pick when streaming to disk', () => {
+    it('says every file is downloaded on its own while the location switch is off', () => {
       render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      expect(screen.getByText(/파일마다 다운로드가 시작돼요/)).toBeInTheDocument();
+      expect(screen.queryByText(/새 폴더/)).not.toBeInTheDocument();
+    });
+
+    it('explains the folder to pick once the location switch is on', async () => {
+      render(<ReceiverView state={receiverState({ meta: bundle })} onAccept={noop} onCancel={noop} onRetry={noop} />);
+      await userEvent.click(screen.getByRole('switch', { name: /위치 지정 다운로드/ }));
       expect(screen.getByText(/새 폴더/)).toBeInTheDocument();
+      expect(screen.queryByText(/파일마다 다운로드가 시작돼요/)).not.toBeInTheDocument();
     });
 
     it('warns that every file starts a download of its own in a memory-only browser', () => {
@@ -329,7 +510,7 @@ describe('ReceiverView', () => {
       expect(screen.queryByRole('button', { name: 'zip 하나로 받기' })).not.toBeInTheDocument();
       expect(screen.getByText(/zip 전체/)).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: '파일 따로 받기' }));
-      expect(onAccept).toHaveBeenCalledWith('files');
+      expect(onAccept).toHaveBeenCalledWith('files', false);
     });
 
     it('can decline', async () => {
@@ -527,9 +708,10 @@ describe('receive screens, copy changes', () => {
   const noop = () => {};
   const meta = { name: 'photo.png', size: 1024, mime: 'image/png' };
 
-  it('tells the download folder instead of asking for a save location (disk streaming)', () => {
+  it('names the download folder as the default on the location switch instead of asking for a save location', () => {
     render(<ReceiverView state={receiverState({ phase: 'review', meta })} onAccept={noop} onCancel={noop} onRetry={noop} />);
-    expect(screen.getByText('파일 받기를 누르면 브라우저 기본 다운로드 폴더로')).toBeInTheDocument();
+    expect(screen.getByText('(기본: 다운로드 폴더)')).toBeInTheDocument();
+    expect(screen.queryByText('파일 받기를 누르면 브라우저 기본 다운로드 폴더로')).not.toBeInTheDocument();
     expect(screen.queryByText(/저장할 위치/)).not.toBeInTheDocument();
   });
 
@@ -578,7 +760,7 @@ describe('several files', () => {
 
 describe('message to hand over', () => {
   const noop = () => {};
-  const messageFor = (code: string) => `${window.location.origin} 에 접속해 파일을 다운로드 하세요.\n코드는 ${code} 입니다.😊`;
+  const messageFor = (code: string) => `${window.location.origin} 에 접속해 파일을 다운로드 하세요.😊\n코드는 ${code}`;
 
   function mockClipboard(writeText = vi.fn().mockResolvedValue(undefined)) {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

@@ -3,6 +3,7 @@ import { expect, test, type Download } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import {
   acceptAndDownload,
+  chooseSaveLocation,
   joinAndReview,
   makeTestFile,
   newReceiverContext,
@@ -64,6 +65,7 @@ test('the zip also streams to disk through the File System Access API', async ({
   const context = await newReceiverContext(browser, 'opfs');
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);
+  await chooseSaveLocation(receiver);
   await receiver.getByRole('button', { name: 'zip 하나로 받기' }).click();
   await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
 
@@ -123,6 +125,7 @@ test('files stream into a chosen folder, each with exactly its own bytes', async
   const context = await newReceiverContext(browser, 'opfs');
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);
+  await chooseSaveLocation(receiver);
   await receiver.getByRole('button', { name: '파일 따로 받기' }).click();
   await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
   await expect(receiver.getByText(`'${PICKED_FOLDER}' 폴더에 저장했어요`)).toBeVisible();
@@ -143,6 +146,7 @@ test('the sender sees both finish when one receiver takes the zip and another th
   const [zipReceiver, filesReceiver] = await Promise.all([zipContext.newPage(), filesContext.newPage()]);
   await joinAndReview(zipReceiver, code);
   await joinAndReview(filesReceiver, code);
+  await chooseSaveLocation(filesReceiver);
 
   const [zipDownload] = await Promise.all([
     zipReceiver.waitForEvent('download'),
@@ -182,6 +186,32 @@ test('more than 1000 files are refused with a clear message', async ({ page }) =
   await expect(page.getByText(/1000개까지/)).toBeVisible();
   await page.getByRole('button', { name: '파일 다시 고르기' }).click();
   await expect(page.getByRole('heading', { name: '어떤 파일을 보낼까요?' })).toBeVisible();
+});
+
+test.describe('a dropped folder is refused without moving anything', () => {
+  for (const width of [1280, 360]) {
+    test(`the card keeps its height and position (${width}px)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/');
+      const card = page.locator('.card');
+      const before = (await card.boundingBox())!;
+      const footerBefore = (await page.getByRole('contentinfo').boundingBox())!;
+
+      await page.getByTestId('dropzone').evaluate((zone) => {
+        const transfer = new DataTransfer();
+        const folder = { webkitGetAsEntry: () => ({ isDirectory: true }) };
+        Object.defineProperty(transfer, 'items', { value: [folder] });
+        zone.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      });
+
+      await expect(page.getByTestId('dropzone').getByRole('alert')).toHaveText('폴더는 보낼 수 없어요. 파일을 골라주세요.');
+      const after = (await card.boundingBox())!;
+      const footerAfter = (await page.getByRole('contentinfo').boundingBox())!;
+      expect(after.height).toBe(before.height);
+      expect(after.y).toBe(before.y);
+      expect(footerAfter.y).toBe(footerBefore.y);
+    });
+  }
 });
 
 test('clicking the drop field opens the file explorer and allows several files', async ({ page }) => {

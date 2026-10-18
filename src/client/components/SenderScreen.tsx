@@ -5,6 +5,7 @@ import { SenderSession, isPeerActive } from '../lib/senderSession';
 import { ZipLimitError } from '../lib/zip';
 import { SenderBundleError, SenderPreparing, SenderView } from './SenderView';
 import { useNow } from './useNow';
+import { useWakeLock } from './useWakeLock';
 
 interface SenderScreenProps {
   files: File[];
@@ -15,6 +16,11 @@ function Connected({ session, onExit, onRenew }: { session: SenderSession; onExi
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const now = useNow(1_000);
   const transferring = state.phase === 'open' && state.peers.some(isPeerActive);
+  const expired = (state.expiresAt ?? 0) - (now + state.clockOffset) <= 0;
+
+  // A sleeping phone drops the connection, which stops the transfer: keep the screen on while it matters
+  // (waiting for receivers, or sending). An expired code with nothing running needs nothing.
+  useWakeLock(state.phase === 'open' && (transferring || !expired));
 
   // Closing the tab or switching to 받기 ends every transfer, so ask first while one is running.
   useEffect(() => {
@@ -27,6 +33,16 @@ function Connected({ session, onExit, onRenew }: { session: SenderSession; onExi
       setLeaveGuard(null);
     };
   }, [transferring]);
+
+  // Closing the tab says goodbye right away. A phone that merely fell asleep says nothing: the server
+  // keeps the room for a while and the sender can take it back.
+  useEffect(() => {
+    const leave = (event: PageTransitionEvent) => {
+      if (!event.persisted) session.dispose();
+    };
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, [session]);
 
   return <SenderView state={state} now={now} onLeave={onExit} onRenew={onRenew} />;
 }

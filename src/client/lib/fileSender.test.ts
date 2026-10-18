@@ -25,6 +25,40 @@ const accept = (channel: FakeChannel) => channel.emitMessage(JSON.stringify({ t:
 const ack = (channel: FakeChannel, bytes: number) => channel.emitMessage(JSON.stringify({ t: 'ack', bytes }));
 const sentBytes = (channel: FakeChannel) => channel.chunks.reduce((n, c) => n + c.byteLength, 0);
 
+describe('FileSender picking up a dropped transfer', () => {
+  const acceptFrom = (channel: FakeChannel, from: number) => channel.emitMessage(JSON.stringify({ t: 'accept', from }));
+
+  it('continues right after the bytes the receiver already has', async () => {
+    const { channel, file, sender, last } = setup(3 * CHUNK_SIZE + 100);
+    autoDrain(channel);
+    sender.start();
+    acceptFrom(channel, CHUNK_SIZE);
+    await waitFor(() => channel.chunks.length === 3);
+    expect(channel.chunks.map((c) => c.byteLength)).toEqual([CHUNK_SIZE, CHUNK_SIZE, 100]);
+    const sent = new Uint8Array(await new Blob(channel.chunks).arrayBuffer());
+    expect(sent).toEqual(new Uint8Array(await file.arrayBuffer()).slice(CHUNK_SIZE));
+    expect(last()).toMatchObject({ phase: 'sending', ackedBytes: CHUNK_SIZE });
+  });
+
+  it('only waits for the last ACK when everything but the "complete" message is already saved', async () => {
+    const { channel, sender, last } = setup(1000);
+    autoDrain(channel);
+    sender.start();
+    acceptFrom(channel, 1000);
+    await waitFor(() => last().phase === 'done');
+    expect(channel.chunks).toHaveLength(0);
+    expect(channel.messagesOf('complete')).toHaveLength(1);
+  });
+
+  it('refuses a starting point beyond the end of the file', async () => {
+    const { channel, sender, last } = setup(1000);
+    sender.start();
+    acceptFrom(channel, 1001);
+    await waitFor(() => last().phase === 'failed');
+    expect(last().reason).toBe('protocol');
+  });
+});
+
 describe('FileSender', () => {
   it('sends metadata as a string first and no file bytes before the receiver accepts', async () => {
     const { channel, sender, last } = setup(1234);

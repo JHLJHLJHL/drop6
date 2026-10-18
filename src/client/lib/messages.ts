@@ -26,6 +26,8 @@ export function describeJoinError(code: string | undefined): Message {
         title: '받는 사람이 가득 찼어요',
         body: '한 번에 3명까지 받을 수 있어요. 다른 사람이 끝난 뒤에 다시 시도해주세요.',
       };
+    case 'SENDER_AWAY':
+      return { title: '보내는 사람 연결이 잠시 끊겼어요', body: '곧 돌아올 수 있어요. 잠시 뒤에 코드를 다시 입력해주세요.' };
     case 'RATE_LIMITED':
       return { title: '잠시 쉬었다 시도해주세요', body: '짧은 시간에 너무 많이 시도했어요. 1분쯤 뒤에 다시 입력해주세요.' };
     case 'SERVER_UNAVAILABLE':
@@ -77,6 +79,8 @@ export function describeSenderPeer(peer: SenderPeerView, hasTurn: boolean): stri
       return '받을지 확인하는 중이에요';
     case 'sending':
       return '보내는 중이에요';
+    case 'paused':
+      return '연결이 끊겨서 다시 연결하는 중이에요';
     case 'done':
       return '받기를 마쳤어요';
     case 'canceled':

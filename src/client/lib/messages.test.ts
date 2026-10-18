@@ -24,6 +24,7 @@ describe('describeJoinError', () => {
     ['ROOM_NOT_FOUND', '없는 코드'],
     ['ROOM_EXPIRED', '만료'],
     ['ROOM_FULL', '가득'],
+    ['SENDER_AWAY', '연결이 잠시 끊겼어요'],
     ['RATE_LIMITED', '잠시'],
     ['SERVER_UNAVAILABLE', '서버에 연결하지 못했어요'],
   ])('explains %s in Korean', (code, fragment) => {
@@ -77,6 +78,7 @@ describe('describeSenderPeer', () => {
     expect(describeSenderPeer(peer({ phase: 'connecting' }), true)).toContain('연결');
     expect(describeSenderPeer(peer({ phase: 'waiting' }), true)).toContain('확인');
     expect(describeSenderPeer(peer({ phase: 'sending' }), true)).toContain('보내는 중');
+    expect(describeSenderPeer(peer({ phase: 'paused' }), true)).toContain('다시 연결');
     expect(describeSenderPeer(peer({ phase: 'done' }), true)).toContain('마쳤');
     expect(describeSenderPeer(peer({ phase: 'left' }), true)).toContain('나갔');
     expect(describeSenderPeer(peer({ phase: 'canceled' }), true)).toContain('취소');

@@ -1,4 +1,4 @@
-import { canReceiveInMemory, type FileEntry, type FileMeta } from '../../shared/transfer';
+import { canReceiveInMemory, type Delivery, type FileEntry, type FileMeta } from '../../shared/transfer';
 import { numberedName, sanitizeFileName } from './format';
 import { uniqueNames } from './zip';
 
@@ -162,6 +162,16 @@ export function hasFileSystemAccess(): boolean {
 }
 
 export type Receivable = { ok: true } | { ok: false; reason: 'too-large' };
+
+/**
+ * Whether receiving opens a save dialog. Only browsers that can write to disk have one.
+ * Unless the user asked to pick the location, the browser's own download is used (straight
+ * into the downloads folder); it holds the file in memory, so what is too big for that
+ * still goes through the dialog.
+ */
+export function needsPicker(meta: FileMeta, delivery: Delivery, chooseLocation: boolean): boolean {
+  return hasFileSystemAccess() && (chooseLocation || !receiveOptions(meta, false)[delivery]);
+}
 
 /**
  * What a receiver can take: the zip (or the single file) as one piece, and/or the
