@@ -285,6 +285,77 @@ p {
   overflow-wrap: anywhere;
 }
 
+/* On/off switch: the real checkbox stays in the page (focus, keys, readers); the track and knob are drawn after it. */
+.switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 44px;
+  color: var(--grey-900);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.switch-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: #d1d6db;
+  transition: background-color 0.15s ease;
+}
+
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.switch-input:checked + .switch-track {
+  background: var(--primary);
+}
+
+.switch-input:checked + .switch-track::after {
+  transform: translateX(18px);
+}
+
+.switch-input:focus-visible + .switch-track {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.switch-text {
+  word-break: keep-all;
+}
+
+.switch-hint {
+  margin-left: 6px;
+  color: var(--grey-500);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
 .share {
   display: flex;
   flex-direction: column;
@@ -299,20 +370,38 @@ p {
   font-weight: 500;
 }
 
-/* The big code: what the receiver types. */
+/* The big code: what the receiver types. A button: pressing it copies the code. */
 .code {
+  display: block;
+  width: 100%;
   margin: 0;
   padding: 24px 12px;
+  border: 0;
   border-radius: var(--radius-card);
   background: var(--primary-weak);
   color: var(--primary-strong);
+  font-family: inherit;
   font-size: clamp(2.25rem, 13vw, 3.5rem);
   font-weight: 800;
   letter-spacing: 0.08em;
   line-height: 1.1;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  user-select: all;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.code:hover {
+  filter: brightness(0.97);
+}
+
+.code:active {
+  filter: brightness(0.94);
+}
+
+.code:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* Message box on the left, square QR code attached on its right. */

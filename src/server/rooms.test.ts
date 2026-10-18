@@ -148,6 +148,155 @@ describe('RoomManager.leave', () => {
   });
 });
 
+describe('a sender that dropped off', () => {
+  const GRACE = 60_000;
+
+  function setupWithGrace() {
+    const clock = { time: 1_000_000, now() { return this.time; } };
+    const manager = new RoomManager({ clock, senderGraceMs: GRACE });
+    return { clock, manager };
+  }
+
+  function openRoomWithSecret(manager: RoomManager) {
+    const sender = new FakePeer();
+    manager.createRoom(sender);
+    const created = sender.last('room-created');
+    return { sender, code: created.code, senderId: created.peerId, secret: created.secret };
+  }
+
+  it('hands a secret to the sender only when the room is created', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code, secret } = openRoomWithSecret(manager);
+    expect(secret).toMatch(/^[0-9a-f]{32}$/);
+    const { receiver } = join(manager, code);
+    expect(JSON.stringify(receiver.messages)).not.toContain(secret);
+    expect(sender.messages.filter((m) => m.type === 'room-created')).toHaveLength(1);
+  });
+
+  it('keeps the room and its receivers without telling them anything', () => {
+    const { manager, clock } = setupWithGrace();
+    const { sender, code } = openRoomWithSecret(manager);
+    const { receiver } = join(manager, code);
+    const before = receiver.messages.length;
+    manager.disconnect(sender);
+    clock.time += GRACE - 1;
+    manager.sweep();
+    expect(manager.roomCount).toBe(1);
+    expect(receiver.messages).toHaveLength(before);
+    expect(receiver.closed).toBe(false);
+  });
+
+  it('closes the room for the receivers once the grace period is over', () => {
+    const { manager, clock } = setupWithGrace();
+    const { sender, code } = openRoomWithSecret(manager);
+    const { receiver } = join(manager, code);
+    manager.disconnect(sender);
+    clock.time += GRACE;
+    manager.sweep();
+    expect(receiver.last('room-closed').reason).toBe('SENDER_LEFT');
+    expect(receiver.closed).toBe(true);
+    expect(manager.roomCount).toBe(0);
+  });
+
+  it('closes a room that nobody swept as soon as someone asks for it after the grace period', () => {
+    const { manager, clock } = setupWithGrace();
+    const { sender, code } = openRoomWithSecret(manager);
+    manager.disconnect(sender);
+    clock.time += GRACE;
+    expect(join(manager, code).error).toBe('ROOM_NOT_FOUND');
+    expect(manager.roomCount).toBe(0);
+
+    const second = openRoomWithSecret(manager);
+    manager.disconnect(second.sender);
+    clock.time += GRACE;
+    expect(manager.resumeRoom(new FakePeer(), second.code, second.secret)).toBe('ROOM_NOT_FOUND');
+    expect(manager.roomCount).toBe(0);
+  });
+
+  it('still closes at once when the sender leaves on purpose', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code } = openRoomWithSecret(manager);
+    const { receiver } = join(manager, code);
+    manager.leave(sender);
+    expect(receiver.last('room-closed').reason).toBe('SENDER_LEFT');
+    expect(manager.roomCount).toBe(0);
+  });
+
+  it('treats a disconnecting receiver like a leaving one', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code } = openRoomWithSecret(manager);
+    const { receiver } = join(manager, code);
+    manager.disconnect(receiver);
+    expect(sender.last('peer-left').receiverCount).toBe(0);
+  });
+
+  it('refuses new receivers while the sender is away', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code } = openRoomWithSecret(manager);
+    manager.disconnect(sender);
+    expect(join(manager, code).error).toBe('SENDER_AWAY');
+  });
+
+  it('lets the sender take the room back, handing over the receivers and keeping its identity', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code, senderId, secret } = openRoomWithSecret(manager);
+    const a = join(manager, code).receiver;
+    const b = join(manager, code).receiver;
+    manager.disconnect(sender);
+
+    const back = new FakePeer();
+    expect(manager.resumeRoom(back, code, secret)).toBeUndefined();
+    const resumed = back.last('room-resumed');
+    expect(resumed.peerId).toBe(senderId);
+    expect(resumed.receiverIds.sort()).toEqual([a.last('room-joined').peerId, b.last('room-joined').peerId].sort());
+
+    // signals flow again, and new receivers are welcome again
+    expect(manager.relaySignal(a, senderId, offer)).toBeUndefined();
+    expect(back.last('signal')).toMatchObject({ data: offer });
+    expect(join(manager, code).error).toBeUndefined();
+    expect(back.last('peer-joined').receiverCount).toBe(3);
+  });
+
+  it('drops what receivers send to the sender while it is away instead of failing', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code, senderId } = openRoomWithSecret(manager);
+    const { receiver } = join(manager, code);
+    manager.disconnect(sender);
+    expect(manager.relaySignal(receiver, senderId, offer)).toBeUndefined();
+    expect(manager.relayProgress(receiver, { state: 'waiting', receivedBytes: 0, totalBytes: 1 })).toBeUndefined();
+    manager.leave(receiver); // and a receiver leaving meanwhile does not trip over the missing sender
+  });
+
+  it('only hands the room to someone with the right secret', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code, secret } = openRoomWithSecret(manager);
+    manager.disconnect(sender);
+    const intruder = new FakePeer();
+    expect(manager.resumeRoom(intruder, code, 'f'.repeat(32))).toBe('NOT_ALLOWED');
+    expect(manager.resumeRoom(intruder, code, secret.slice(0, 31))).toBe('NOT_ALLOWED');
+    expect(manager.resumeRoom(intruder, '000000', secret)).toBe('ROOM_NOT_FOUND');
+    expect(intruder.messages).toHaveLength(0);
+  });
+
+  it('replaces a connection that still looks alive and closes it', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code, secret } = openRoomWithSecret(manager);
+    const fresh = new FakePeer();
+    expect(manager.resumeRoom(fresh, code, secret)).toBeUndefined();
+    expect(sender.closed).toBe(true);
+    manager.disconnect(sender); // the old connection finally reports its death: nothing happens to the room
+    expect(manager.roomCount).toBe(1);
+    expect(join(manager, code).error).toBeUndefined();
+    expect(fresh.last('peer-joined').receiverCount).toBe(1);
+  });
+
+  it('refuses a connection that is already in a room', () => {
+    const { manager } = setupWithGrace();
+    const { sender, code, secret } = openRoomWithSecret(manager);
+    expect(manager.resumeRoom(sender, code, secret)).toBe('ALREADY_IN_ROOM');
+  });
+});
+
 describe('RoomManager.relaySignal', () => {
   it('relays between sender and receiver in both directions', () => {
     const { manager } = setup();

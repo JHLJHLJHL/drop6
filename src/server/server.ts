@@ -21,6 +21,8 @@ export interface AppServerOptions {
   heartbeatIntervalMs?: number;
   joinRateLimit?: { max: number; windowMs: number };
   generateCode?: () => string;
+  /** How long a room waits for a sender whose connection dropped. Defaults to SENDER_GRACE_MS. */
+  senderGraceMs?: number;
   logger?: Logger;
 }
 
@@ -50,12 +52,15 @@ const FORCE_CLOSE_AFTER_MS = 2_000;
 export function createAppServer(options: AppServerOptions): AppServer {
   const logger = options.logger ?? consoleLogger;
   const clock = new OffsetClock();
-  const manager = new RoomManager({ clock, generateCode: options.generateCode });
+  const manager = new RoomManager({ clock, generateCode: options.generateCode, senderGraceMs: options.senderGraceMs });
   const joinLimiter = new SlidingWindowLimiter({ ...(options.joinRateLimit ?? JOIN_RATE_LIMIT), clock });
 
   const testControls = options.testMode
     ? {
-        advanceClock: (ms: number) => clock.advance(ms),
+        advanceClock: (ms: number) => {
+          clock.advance(ms);
+          manager.sweep(); // the heartbeat would only notice at its next tick
+        },
         reset: () => {
           clock.reset();
           joinLimiter.reset();

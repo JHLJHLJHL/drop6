@@ -263,19 +263,90 @@ describe('WebSocket protocol', () => {
     expect(await sender.next('transfer-progress')).toMatchObject({ from: peerId, state: 'failed' });
   });
 
-  it('tells receivers when the sender leaves or disconnects', async () => {
+  it('tells receivers at once when the sender leaves on purpose', async () => {
     const { ws } = await start();
     const first = await openRoom(ws);
     const a = await joinRoom(ws, first.code);
     await a.next('room-joined');
     first.sender.send({ type: 'leave' });
     expect(await a.next('room-closed')).toMatchObject({ reason: 'SENDER_LEFT' });
+  });
 
-    const second = await openRoom(ws);
-    const b = await joinRoom(ws, second.code);
-    await b.next('room-joined');
-    second.sender.ws.terminate();
-    expect(await b.next('room-closed')).toMatchObject({ reason: 'SENDER_LEFT' });
+  it('keeps the room for a sender that just vanished, and tells receivers only once the grace period is over', async () => {
+    const { ws, http } = await start({ testMode: true, senderGraceMs: 10_000 });
+    const { sender, code } = await openRoom(ws);
+    const receiver = await joinRoom(ws, code);
+    await receiver.next('room-joined');
+    sender.ws.terminate();
+
+    await receiver.expectSilence(150);
+    await fetch(`${http}/__test__/clock/advance`, { method: 'POST', body: JSON.stringify({ ms: 9_000 }) });
+    await receiver.expectSilence(100);
+    await fetch(`${http}/__test__/clock/advance`, { method: 'POST', body: JSON.stringify({ ms: 2_000 }) });
+    expect(await receiver.next('room-closed')).toMatchObject({ reason: 'SENDER_LEFT' });
+  });
+
+  it('lets the sender take the room back with its secret and hands over the receivers that are still there', async () => {
+    const { ws } = await start();
+    const first = await connect(ws);
+    first.send({ type: 'create-room' });
+    const created = await first.next<{ code: string; peerId: string; secret: string }>('room-created');
+    const receiver = await joinRoom(ws, created.code);
+    const { peerId: receiverId } = await receiver.next<{ peerId: string }>('room-joined');
+    await first.next('peer-joined');
+    first.ws.terminate();
+    await first.closed;
+
+    const back = await connect(ws);
+    back.send({ type: 'resume-room', code: created.code, secret: created.secret });
+    expect(await back.next('room-resumed')).toMatchObject({
+      peerId: created.peerId,
+      receiverIds: [receiverId],
+      maxReceivers: MAX_RECEIVERS,
+    });
+
+    // the receiver can reach the new connection with the sender's old peer id, and the room is open again
+    receiver.send({ type: 'signal', to: created.peerId, data: { kind: 'answer', sdp: 'v=0' } });
+    expect(await back.next('signal')).toMatchObject({ from: receiverId });
+    const late = await joinRoom(ws, created.code);
+    await late.next('room-joined');
+  });
+
+  it('refuses to hand the room to anyone without the secret', async () => {
+    const { ws } = await start();
+    const { sender, code } = await openRoom(ws);
+    sender.ws.terminate();
+    await sender.closed;
+
+    const intruder = await connect(ws);
+    intruder.send({ type: 'resume-room', code, secret: '0'.repeat(32) });
+    expect(await intruder.next('error')).toMatchObject({ code: 'NOT_ALLOWED' });
+  });
+
+  it('refuses new receivers while the sender is away', async () => {
+    const { ws } = await start();
+    const { sender, code } = await openRoom(ws);
+    sender.ws.terminate();
+    await sender.closed;
+
+    const late = await joinRoom(ws, code);
+    expect(await late.next('error')).toMatchObject({ code: 'SENDER_AWAY' });
+  });
+
+  it('lets a new connection of the sender replace one that still looks alive', async () => {
+    const { ws } = await start();
+    const first = await connect(ws);
+    first.send({ type: 'create-room' });
+    const created = await first.next<{ code: string; secret: string }>('room-created');
+
+    const second = await connect(ws);
+    second.send({ type: 'resume-room', code: created.code, secret: created.secret });
+    await second.next('room-resumed');
+    await first.closed;
+
+    const receiver = await joinRoom(ws, created.code);
+    await receiver.next('room-joined');
+    expect(await second.next('peer-joined')).toMatchObject({ receiverCount: 1 });
   });
 
   it('tells the sender when a receiver disconnects', async () => {

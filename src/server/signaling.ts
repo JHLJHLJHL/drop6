@@ -116,6 +116,9 @@ export function attachSignaling(server: Server, options: SignalingOptions): Sign
         case 'join-room':
           error = joinLimiter.hit(ip).allowed ? manager.joinRoom(handle, message.code) : 'RATE_LIMITED';
           break;
+        case 'resume-room':
+          error = manager.resumeRoom(handle, message.code, message.secret);
+          break;
         case 'signal':
           error = manager.relaySignal(handle, message.to, message.data);
           break;
@@ -129,7 +132,8 @@ export function attachSignaling(server: Server, options: SignalingOptions): Sign
       if (error) fail(error);
     }
 
-    ws.on('close', () => manager.leave(handle));
+    // A sender that just vanished (asleep phone, lost network) gets time to come back; an explicit "leave" does not.
+    ws.on('close', () => manager.disconnect(handle));
     ws.on('error', () => ws.terminate());
   });
 
@@ -144,6 +148,7 @@ export function attachSignaling(server: Server, options: SignalingOptions): Sign
       ws.ping();
     }
     joinLimiter.prune();
+    manager.sweep();
   }, options.heartbeatIntervalMs);
   heartbeat.unref();
 

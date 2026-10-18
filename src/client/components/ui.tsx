@@ -17,6 +17,36 @@ export function Button({ variant = 'primary', loading = false, disabled, classNa
   );
 }
 
+/** An on/off switch with its label (and an optional lighter hint after it). */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onChange(checked: boolean): void;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <label className="switch">
+      <input
+        type="checkbox"
+        role="switch"
+        className="switch-input"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="switch-track" aria-hidden="true" />
+      <span className="switch-text">
+        {label}
+        {hint && <span className="switch-hint">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
 /**
  * Page title. Takes focus on mount so screen readers announce each new state.
  * Pass focusOnMount={false} on screens that already focus something better

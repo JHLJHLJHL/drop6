@@ -3,13 +3,15 @@ import {
   payloadSize,
   senderMessageSchema,
   type Delivery,
+  type FileEntry,
   type FileMeta,
   type ReceiverMessage,
 } from '../../shared/transfer';
 import { trySend, type ChannelLike } from './channel';
 import { receiveOptions, type FileSink } from './sink';
 
-export type ReceivePhase = 'waiting' | 'review' | 'blocked' | 'receiving' | 'done' | 'canceled' | 'failed';
+/** `paused`: the connection dropped mid-transfer; what was saved so far is kept until the sender connects again. */
+export type ReceivePhase = 'waiting' | 'review' | 'blocked' | 'receiving' | 'paused' | 'done' | 'canceled' | 'failed';
 
 export interface ReceiveSnapshot {
   phase: ReceivePhase;
@@ -33,9 +35,11 @@ export class FileReceiver {
   private lastAcked = 0;
   private writeChain: Promise<void> = Promise.resolve();
   private settling = false;
+  /** A new connection was handed over while paused; its first message must be the same file's meta. */
+  private resuming = false;
 
   constructor(
-    private readonly channel: ChannelLike,
+    private channel: ChannelLike,
     private readonly options: { memoryOnly: boolean },
     private readonly onChange: (snapshot: ReceiveSnapshot) => void,
   ) {
@@ -45,6 +49,46 @@ export class FileReceiver {
 
   get snapshot(): ReceiveSnapshot {
     return { phase: this.phase, meta: this.meta, savedBytes: this.saved, reason: this.reason };
+  }
+
+  /** Waiting for the sender to connect again; the sink is still open and nothing saved is lost. */
+  get isPaused(): boolean {
+    return this.phase === 'paused';
+  }
+
+  /**
+   * The connection dropped mid-transfer (or is being replaced). Keeps the sink and what it holds,
+   * and waits for `resume` with the next connection. Only has an effect while receiving.
+   */
+  suspend(): void {
+    if (this.phase !== 'receiving') return;
+    this.unlisten();
+    this.phase = 'paused';
+    this.resuming = false;
+    this.onChange(this.snapshot);
+  }
+
+  /**
+   * Picks the transfer up again on a new connection: once the sender announces the same file,
+   * it is asked to continue right after the last byte that was saved.
+   */
+  resume(channel: ChannelLike): void {
+    if (this.phase !== 'paused') return;
+    this.unlisten();
+    this.channel = channel;
+    this.resuming = true;
+    channel.addEventListener('message', this.handleMessage);
+    channel.addEventListener('close', this.handleClose);
+  }
+
+  /** Stops listening to the connection without touching the transfer (it was replaced by another receiver object). */
+  detach(): void {
+    this.unlisten();
+  }
+
+  private unlisten(): void {
+    this.channel.removeEventListener('message', this.handleMessage);
+    this.channel.removeEventListener('close', this.handleClose);
   }
 
   private get terminal(): boolean {
@@ -68,7 +112,8 @@ export class FileReceiver {
     this.delivery = delivery;
     this.phase = 'receiving';
     this.onChange(this.snapshot);
-    if (!this.send(delivery === 'files' ? { t: 'accept', as: 'files' } : { t: 'accept' })) void this.fail('connection-lost');
+    // The connection may have dropped while the user was deciding: wait for the sender to connect again.
+    if (!this.send(delivery === 'files' ? { t: 'accept', as: 'files' } : { t: 'accept' })) this.suspend();
   }
 
   /** User said no before anything was sent. */
@@ -81,6 +126,13 @@ export class FileReceiver {
   /** User stopped the transfer. Only this receiver's connection ends; the stream is aborted. */
   cancel(): void {
     if (this.terminal) return;
+    if (this.phase === 'paused') {
+      const sink = this.sink;
+      this.send({ t: 'cancel' }); // best effort: the connection is probably gone
+      this.finish('canceled', 'local');
+      void sink?.abort();
+      return;
+    }
     if (this.phase !== 'receiving') {
       this.decline();
       return;
@@ -104,8 +156,7 @@ export class FileReceiver {
     if (this.terminal) return;
     this.phase = phase;
     this.reason = reason;
-    this.channel.removeEventListener('message', this.handleMessage);
-    this.channel.removeEventListener('close', this.handleClose);
+    this.unlisten();
     this.onChange(this.snapshot);
   }
 
@@ -119,15 +170,23 @@ export class FileReceiver {
 
   private readonly handleClose = (): void => {
     if (this.terminal) return;
+    if (this.phase === 'paused') {
+      // The new connection died before it got going: keep waiting for the next one.
+      this.resuming = false;
+      this.unlisten();
+      return;
+    }
     if (this.phase !== 'receiving') {
-      void this.fail('connection-lost');
+      // Nothing is being received yet: the screen stays as it is. The sender connects again on its own
+      // (the next offer replaces this receiver), or the room closes and the session reports why.
+      this.unlisten();
       return;
     }
     // Writes already in flight may still complete the file; wait for them before judging.
     void this.writeChain.then(() => {
       if (this.terminal || this.settling) return;
       if (this.meta && this.saved === this.expectedBytes) void this.finalize(this.expectedBytes);
-      else void this.fail('connection-lost');
+      else this.suspend(); // what is saved stays; the sender may come back
     });
   };
 
@@ -139,8 +198,34 @@ export class FileReceiver {
     }
     if (!(data instanceof ArrayBuffer)) return;
     if (this.phase === 'receiving') this.handleChunk(data);
-    else if (!this.terminal) void this.fail('protocol');
+    else if (!this.terminal && this.phase !== 'paused') void this.fail('protocol');
   };
+
+  /** The sender announced a file on a new connection: continue if it is the one being received. */
+  private continueWith(message: { name: string; size: number; mime: string; files?: FileEntry[] | undefined }): void {
+    const known = this.meta;
+    const same =
+      known !== undefined &&
+      message.name === known.name &&
+      message.size === known.size &&
+      message.mime === known.mime &&
+      JSON.stringify(message.files) === JSON.stringify(known.files);
+    if (!same) {
+      void this.fail('protocol');
+      return;
+    }
+    this.resuming = false;
+    // Everything received before the drop is written first; the sender then restarts right after it.
+    void this.writeChain.then(() => {
+      if (this.terminal || this.phase !== 'paused') return;
+      this.received = this.saved;
+      this.lastAcked = this.saved;
+      this.phase = 'receiving';
+      this.onChange(this.snapshot);
+      const accept: ReceiverMessage = { t: 'accept', ...(this.delivery === 'files' && { as: 'files' as const }), from: this.saved };
+      if (!this.send(accept)) this.suspend();
+    });
+  }
 
   private handleControl(text: string): void {
     let json: unknown;
@@ -155,6 +240,10 @@ export class FileReceiver {
 
     switch (message.t) {
       case 'meta':
+        if (this.phase === 'paused' && this.resuming) {
+          this.continueWith(message);
+          break;
+        }
         if (this.phase !== 'waiting') {
           void this.fail('protocol');
           break;

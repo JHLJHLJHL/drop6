@@ -4,6 +4,7 @@ import { receiveLink } from '../lib/deepLink';
 import { formatBytes, formatCode, formatCountdown, formatSpeed } from '../lib/format';
 import { describeBundleError, describeSenderClosed, describeSenderPeer } from '../lib/messages';
 import { isPeerActive, type SenderPeerView, type SenderState } from '../lib/senderSession';
+import { useCopyToast } from './CopyToast';
 import { QrCode } from './QrCode';
 import { Button, FileCard, PrivacyNote, ProgressBar, TitleBlock, percentOf } from './ui';
 
@@ -15,6 +16,8 @@ interface SenderViewProps {
   /** Start over with a fresh code for the same file. */
   onRenew(): void;
 }
+
+const KEEP_AWAKE_NOTICE = '화면을 켜 두세요. 끊겨도 돌아오면 이어서 보내요';
 
 function PeerRow({ peer, hasTurn }: { peer: SenderPeerView; hasTurn: boolean }) {
   const percent = percentOf(peer.ackedBytes, peer.totalBytes);
@@ -64,8 +67,8 @@ function useCopy(text: string) {
 
 /** The message a sender can paste into a chat: where to go and which code to type. */
 export function shareMessage(origin: string, code: string): string {
-  return `${origin} 에 접속해 파일을 다운로드 하세요.
-코드는 ${code} 입니다.😊`;
+  return `${origin} 에 접속해 파일을 다운로드 하세요.😊
+코드는 ${code}`;
 }
 
 function ShareMessage({ code }: { code: string }) {
@@ -131,6 +134,7 @@ export function SenderBundleError({ reason, onLeave }: { reason: string; onLeave
 }
 
 export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
+  const { copy, toast } = useCopyToast();
   const size = formatBytes(state.file.size);
   const fileCard = <FileCard name={state.file.name} detail={state.fileCount > 1 ? `파일 ${state.fileCount}개 · ${size}` : size} />;
   const peerList = state.peers.length > 0 && (
@@ -205,14 +209,28 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
           }
         />
       ) : (
-        <TitleBlock title="코드를 알려주세요" sub="받는 사람이 이 코드를 입력하면 연결돼요" />
+        <TitleBlock title="코드를 알려주세요" sub={'받는 사람이 이 코드를 입력하면 연결돼요\n(이 창을 닫으면 전송이 멈춤)'} />
+      )}
+
+      {state.reconnecting && (
+        <p className="status" role="status">
+          <span className="spinner spinner-dark" aria-hidden="true" />
+          연결이 끊겨서 다시 연결하는 중이에요
+        </p>
       )}
 
       {!expired && (
         <>
-          <p className="code" data-testid="transfer-code" role="img" aria-label={`전송 코드 ${code.split('').join(' ')}`}>
+          <button
+            type="button"
+            className="code"
+            data-testid="transfer-code"
+            aria-label={`전송 코드 ${code.split('').join(' ')} 복사`}
+            onClick={() => void copy(code)}
+          >
             {formatCode(code)}
-          </p>
+          </button>
+          {toast}
           <ShareMessage code={code} />
         </>
       )}
@@ -233,6 +251,7 @@ export function SenderView({ state, now, onLeave, onRenew }: SenderViewProps) {
       {fileCard}
       {peerList}
 
+      {(!expired || !idle) && <p className="note">{KEEP_AWAKE_NOTICE}</p>}
       <PrivacyNote />
 
       <Button variant="text" onClick={onLeave}>

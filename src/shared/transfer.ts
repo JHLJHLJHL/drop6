@@ -42,8 +42,11 @@ export type SenderMessage = z.infer<typeof senderMessageSchema>;
 
 /** Control messages the receiver transmits as strings. */
 export const receiverMessageSchema = z.discriminatedUnion('t', [
-  /** `as: 'files'` asks for the files back to back instead of the zip. Left out, the zip (or the single file) is sent. */
-  z.object({ t: z.literal('accept'), as: z.enum(['zip', 'files']).optional() }),
+  /**
+   * `as: 'files'` asks for the files back to back instead of the zip. Left out, the zip (or the single file) is sent.
+   * `from` is how many bytes are already saved when a dropped connection is picked up again: the sender continues there.
+   */
+  z.object({ t: z.literal('accept'), as: z.enum(['zip', 'files']).optional(), from: byteCount.optional() }),
   z.object({ t: z.literal('reject'), reason: z.enum(['too-large', 'declined']) }),
   z.object({ t: z.literal('ack'), bytes: byteCount }),
   z.object({ t: z.literal('cancel') }),

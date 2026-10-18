@@ -13,7 +13,7 @@ function Connected({ session, onRetry }: { session: ReceiverSession; onRetry(): 
   return (
     <ReceiverView
       state={state}
-      onAccept={(delivery) => void session.accept(delivery)}
+      onAccept={(delivery, chooseLocation) => void session.accept(delivery, chooseLocation)}
       onCancel={() => session.cancel()}
       onRetry={onRetry}
     />

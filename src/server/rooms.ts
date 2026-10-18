@@ -1,8 +1,9 @@
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import {
   ERROR_MESSAGES,
   MAX_RECEIVERS,
   ROOM_TTL_MS,
+  SENDER_GRACE_MS,
   type ErrorCode,
   type ProgressState,
   type RoomCloseReason,
@@ -25,6 +26,8 @@ export interface RoomManagerOptions {
   generateCode?: (() => string) | undefined;
   ttlMs?: number | undefined;
   maxReceivers?: number | undefined;
+  /** How long a room waits for its sender to reconnect before it is given up. */
+  senderGraceMs?: number | undefined;
 }
 
 interface Member {
@@ -37,11 +40,24 @@ interface Member {
 interface Room {
   code: string;
   expiresAt: number;
+  /** Proves it is the same sender when a dropped connection comes back. */
+  secret: string;
+  /** When the sender's connection dropped; undefined while it is connected. */
+  awaySince?: number | undefined;
   sender: Member;
   receivers: Map<string, Member>;
 }
 
 const MAX_CODE_ATTEMPTS = 100;
+
+/** Stands in for the sender's connection while it is away: everything sent to it is dropped. */
+const NOBODY: PeerHandle = { send() {}, close() {} };
+
+function sameSecret(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 /** Cryptographically secure, zero-padded 6-digit code. */
 export function randomCode(): string {
@@ -63,12 +79,14 @@ export class RoomManager {
   private readonly generateCode: () => string;
   private readonly ttlMs: number;
   private readonly maxReceivers: number;
+  private readonly senderGraceMs: number;
 
   constructor(options: RoomManagerOptions = {}) {
     this.clock = options.clock ?? { now: () => Date.now() };
     this.generateCode = options.generateCode ?? randomCode;
     this.ttlMs = options.ttlMs ?? ROOM_TTL_MS;
     this.maxReceivers = options.maxReceivers ?? MAX_RECEIVERS;
+    this.senderGraceMs = options.senderGraceMs ?? SENDER_GRACE_MS;
   }
 
   get roomCount(): number {
@@ -89,7 +107,7 @@ export class RoomManager {
     if (code === undefined) return 'INTERNAL';
 
     const now = this.clock.now();
-    const room = { code, expiresAt: now + this.ttlMs, receivers: new Map() } as Room;
+    const room = { code, expiresAt: now + this.ttlMs, secret: randomBytes(16).toString('hex'), receivers: new Map() } as Room;
     room.sender = { id: newPeerId(), handle, role: 'sender', room };
     this.rooms.set(code, room);
     this.members.set(handle, room.sender);
@@ -98,6 +116,7 @@ export class RoomManager {
       type: 'room-created',
       code,
       peerId: room.sender.id,
+      secret: room.secret,
       expiresAt: room.expiresAt,
       serverTime: now,
       maxReceivers: this.maxReceivers,
@@ -111,6 +130,9 @@ export class RoomManager {
     if (!room) return 'ROOM_NOT_FOUND';
 
     const now = this.clock.now();
+    if (this.giveUpOnAbsentSender(room, now)) return 'ROOM_NOT_FOUND';
+    // Nobody could take the new receiver's offer: ask it to come back once the sender is back.
+    if (room.awaySince !== undefined) return 'SENDER_AWAY';
     // The join window is [createdAt, expiresAt): exactly at expiresAt it is closed.
     if (now >= room.expiresAt) return 'ROOM_EXPIRED';
     if (room.receivers.size >= this.maxReceivers) return 'ROOM_FULL';
@@ -157,6 +179,58 @@ export class RoomManager {
     return undefined;
   }
 
+  /**
+   * The sender is back after its connection dropped: it takes the room over again and gets the
+   * receivers that are still in it. Needs the secret it was given when the room was created.
+   */
+  resumeRoom(handle: PeerHandle, code: string, secret: string): ErrorCode | undefined {
+    if (this.members.has(handle)) return 'ALREADY_IN_ROOM';
+    const room = this.rooms.get(code);
+    if (!room) return 'ROOM_NOT_FOUND';
+    if (!sameSecret(room.secret, secret)) return 'NOT_ALLOWED';
+
+    const now = this.clock.now();
+    if (this.giveUpOnAbsentSender(room, now)) return 'ROOM_NOT_FOUND';
+
+    // The old connection may not look dead from here yet: the new one replaces it.
+    const stale = room.sender.handle;
+    if (stale !== NOBODY) {
+      this.members.delete(stale);
+      stale.close();
+    }
+    room.sender.handle = handle;
+    room.awaySince = undefined;
+    this.members.set(handle, room.sender);
+
+    handle.send({
+      type: 'room-resumed',
+      peerId: room.sender.id,
+      expiresAt: room.expiresAt,
+      serverTime: now,
+      maxReceivers: this.maxReceivers,
+      receiverIds: [...room.receivers.keys()],
+    });
+    return undefined;
+  }
+
+  /** A connection dropped without saying goodbye. A receiver is gone; a sender is given time to come back. */
+  disconnect(handle: PeerHandle): void {
+    const member = this.members.get(handle);
+    if (member?.role !== 'sender') {
+      this.leave(handle);
+      return;
+    }
+    this.members.delete(handle);
+    member.room.sender.handle = NOBODY;
+    member.room.awaySince = this.clock.now();
+  }
+
+  /** Closes the rooms whose sender stayed away for too long. */
+  sweep(): void {
+    const now = this.clock.now();
+    for (const room of [...this.rooms.values()]) this.giveUpOnAbsentSender(room, now);
+  }
+
   leave(handle: PeerHandle): void {
     const member = this.members.get(handle);
     if (!member) return;
@@ -172,7 +246,17 @@ export class RoomManager {
       });
       return;
     }
+    this.closeRoom(room);
+  }
 
+  /** Closes a room whose sender has been away longer than the grace period. True when it was closed. */
+  private giveUpOnAbsentSender(room: Room, now: number): boolean {
+    if (room.awaySince === undefined || now - room.awaySince < this.senderGraceMs) return false;
+    this.closeRoom(room);
+    return true;
+  }
+
+  private closeRoom(room: Room): void {
     this.rooms.delete(room.code);
     for (const receiver of room.receivers.values()) {
       this.members.delete(receiver.handle);

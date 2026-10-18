@@ -57,24 +57,78 @@ describe('sender and receiver together', () => {
     expect(peer.sink.bytes.length).toBe(600_000);
   });
 
-  it('one receiver failing does not stop the other two', async () => {
+  it('one connection dropping does not stop the other two', async () => {
     const file = makeFile(4 * 1024 * 1024);
     const peers = [createPeer(file), createPeer(file), createPeer(file)];
     const [healthy1, victim, healthy2] = peers as [ReturnType<typeof createPeer>, ReturnType<typeof createPeer>, ReturnType<typeof createPeer>];
 
     await Promise.all(peers.map((p) => p.begin()));
     await waitFor(() => victim.senderChannel.chunks.length > 0);
-    victim.receiverChannel.close(); // e.g. the receiver closed their tab
+    victim.receiverChannel.close(); // e.g. the network dropped
 
     await waitFor(() => healthy1.send.phase === 'done' && healthy2.send.phase === 'done');
     await waitFor(() => victim.send.phase === 'failed');
     expect(victim.send.reason).toBe('connection-lost');
-    expect(victim.receive.phase).toBe('failed');
-    expect(victim.sink.aborted).toBe(1);
+    // the receiver keeps what it has and waits for the sender to connect again
+    expect(victim.receive.phase).toBe('paused');
+    expect(victim.sink.aborted).toBe(0);
 
     const original = Buffer.from(await file.arrayBuffer());
     expect(Buffer.from(healthy1.sink.bytes).equals(Buffer.from(original))).toBe(true);
     expect(Buffer.from(healthy2.sink.bytes).equals(Buffer.from(original))).toBe(true);
+  });
+
+  it('picks a dropped transfer up where it stopped and still delivers the exact bytes', async () => {
+    const file = makeFile(2_000_003);
+    const peer = createPeer(file);
+    await peer.begin();
+    await waitFor(() => peer.receive.savedBytes > 300_000);
+    peer.receiverChannel.close(); // the connection drops mid-transfer
+    await waitFor(() => peer.receive.phase === 'paused' && peer.send.phase === 'failed');
+
+    // The sender connects again: a new connection with a new FileSender; the same receiver carries on.
+    const senderChannel = new FakeChannel();
+    const receiverChannel = new FakeChannel();
+    linkChannels(senderChannel, receiverChannel);
+    let send: SendSnapshot | undefined;
+    const sender = new FileSender(senderChannel, file, (s) => (send = s));
+    peer.receiver.resume(receiverChannel);
+    sender.start();
+    await waitFor(() => send?.phase === 'done' && peer.receive.phase === 'done');
+
+    expect(Buffer.from(peer.sink.bytes).equals(Buffer.from(await file.arrayBuffer()))).toBe(true);
+    expect(peer.sink.closed).toBe(1);
+    expect(peer.sink.aborted).toBe(0);
+    // only what was missing went over the new connection
+    const from = receiverChannel.messagesOf('accept')[0]!.from as number;
+    expect(from).toBeGreaterThan(300_000);
+    expect(senderChannel.chunks.reduce((n, c) => n + c.byteLength, 0)).toBe(file.size - from);
+    expect(send).toMatchObject({ ackedBytes: file.size, totalBytes: file.size });
+  });
+
+  it('survives several drops in a row', async () => {
+    const file = makeFile(3_000_007);
+    const peer = createPeer(file);
+    await peer.begin();
+    let receiverChannel = peer.receiverChannel;
+    let send: SendSnapshot | undefined = peer.send;
+
+    for (let drop = 1; drop <= 3; drop += 1) {
+      const target = drop * 600_000;
+      await waitFor(() => peer.receive.savedBytes >= target);
+      receiverChannel.close();
+      await waitFor(() => peer.receive.phase === 'paused');
+
+      const nextSender = new FakeChannel();
+      receiverChannel = new FakeChannel();
+      linkChannels(nextSender, receiverChannel);
+      peer.receiver.resume(receiverChannel);
+      new FileSender(nextSender, file, (s) => (send = s)).start();
+      await waitFor(() => peer.receive.phase === 'receiving');
+    }
+    await waitFor(() => send?.phase === 'done' && peer.receive.phase === 'done');
+    expect(Buffer.from(peer.sink.bytes).equals(Buffer.from(await file.arrayBuffer()))).toBe(true);
+    expect(peer.sink.closed).toBe(1);
   });
 
   it('one receiver cancelling does not stop the other two', async () => {

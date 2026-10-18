@@ -6,6 +6,7 @@ import {
   MINUTE,
   acceptAndDownload,
   advanceServerClock,
+  chooseSaveLocation,
   downloadedHash,
   enterCode,
   joinAndReview,
@@ -65,7 +66,8 @@ test('streams to disk through the File System Access API', async ({ browser, pag
   const context = await newReceiverContext(browser, 'opfs');
   const receiver = await context.newPage();
   await joinAndReview(receiver, code);
-  await expect(receiver.getByText('파일 받기를 누르면 브라우저 기본 다운로드 폴더로')).toBeVisible();
+  await expect(receiver.getByRole('switch', { name: /위치 지정 다운로드/ })).not.toBeChecked();
+  await chooseSaveLocation(receiver);
   await receiver.getByRole('button', { name: '파일 받기' }).click();
   await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
   await expect(receiver.getByText('선택한 위치에 저장했어요.')).toBeVisible();
@@ -79,6 +81,52 @@ test('streams to disk through the File System Access API', async ({ browser, pag
   });
   expect(savedHash).toBe(file.hash);
   await context.close();
+});
+
+test('downloads straight into the downloads folder, with no dialog, while the location switch is off', async ({ browser, page }) => {
+  const file = makeTestFile(1024 * 1024 + 7, 'photo.bin');
+  const code = await startSending(page, file);
+
+  // A browser that could open a save dialog (the OPFS fake stands in for it)...
+  const context = await newReceiverContext(browser, 'opfs');
+  const receiver = await context.newPage();
+  await joinAndReview(receiver, code);
+  await expect(receiver.getByRole('switch', { name: /위치 지정 다운로드/ })).not.toBeChecked();
+  // ...still just starts the browser's own download.
+  const download = await acceptAndDownload(receiver);
+  expect(download.suggestedFilename()).toBe('photo.bin');
+  expect(await downloadedHash(download)).toBe(file.hash);
+  await expect(receiver.getByRole('heading', { name: '다 받았어요' })).toBeVisible();
+  await expect(receiver.getByText('다운로드 폴더를 확인해주세요.')).toBeVisible();
+
+  const dialogWasUsed = await receiver.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    return root.getFileHandle('photo.bin').then(() => true, () => false);
+  });
+  expect(dialogWasUsed).toBe(false);
+  await context.close();
+});
+
+test('the sender keeps the screen awake while the code waits and gives it back on leaving', async ({ page }) => {
+  await page.addInitScript(() => {
+    const counts = { requested: 0, released: 0 };
+    (window as unknown as { __wakeLock: typeof counts }).__wakeLock = counts;
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: async () => {
+          counts.requested += 1;
+          return Object.assign(new EventTarget(), { release: async () => void (counts.released += 1) });
+        },
+      },
+    });
+  });
+  const read = () => page.evaluate(() => (window as unknown as { __wakeLock: { requested: number; released: number } }).__wakeLock);
+
+  await startSending(page, makeTestFile(2048));
+  await expect.poll(read).toEqual({ requested: 1, released: 0 });
+  await page.getByRole('button', { name: '전송 끝내기' }).click();
+  await expect.poll(read).toEqual({ requested: 1, released: 1 });
 });
 
 test('a fourth receiver is told the room is full', async ({ browser, page }) => {
@@ -129,6 +177,7 @@ test('one receiver leaving mid-transfer does not interrupt the others', async ({
   const [pageA, pageB, pageC] = await Promise.all([a, b, c].map((context) => context.newPage()));
   for (const receiver of [pageA!, pageB!, pageC!]) await joinAndReview(receiver, code);
 
+  await chooseSaveLocation(pageB!);
   await pageB!.getByRole('button', { name: '파일 받기' }).click();
   await expect(pageB!.getByRole('heading', { name: '파일을 받는 중이에요' })).toBeVisible();
   await expect
@@ -153,6 +202,7 @@ test('a receiver cancelling is shown to the sender and nobody else is affected',
   await joinAndReview(pageA, code);
   await joinAndReview(pageB, code);
 
+  await chooseSaveLocation(pageA);
   await pageA.getByRole('button', { name: '파일 받기' }).click();
   await expect(pageA.getByRole('button', { name: '받기 취소' })).toBeVisible();
   await pageA.getByRole('button', { name: '받기 취소' }).click();
