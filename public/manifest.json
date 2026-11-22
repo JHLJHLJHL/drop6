@@ -1,0 +1,13 @@
+{
+  "name": "DROP6",
+  "short_name": "DROP6",
+  "description": "6자리 코드로 파일을 보내고 받는 DROP6",
+  "lang": "ko",
+  "start_url": "/",
+  "theme_color": "#3182F6",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

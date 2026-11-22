@@ -39,9 +39,11 @@ describe('header and footer', () => {
   it('puts an icon in front of the DROP6 title and marks the 6 for its own color', () => {
     render(<App />);
     const brand = screen.getByRole('link', { name: 'DROP6 처음으로' });
-    const icon = brand.querySelector('svg.lucide-arrow-down-to-line');
+    const icon = brand.querySelector('img.brand-mark');
     const six = brand.querySelector('.brand-six');
     expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('src', '/drop6-mark.png');
+    expect(icon).toHaveAttribute('alt', '');
     expect(icon).toHaveAttribute('aria-hidden', 'true');
     expect(six).toHaveTextContent(/^6$/);
     expect(brand).toHaveTextContent(/^DROP6$/); // the icon adds no text for readers

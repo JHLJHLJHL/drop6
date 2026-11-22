@@ -1,4 +1,3 @@
-import { ArrowDownToLine } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CodeEntryView } from './components/CodeEntryView';
 import { EmailCopy } from './components/EmailCopy';
@@ -66,9 +65,7 @@ export function App() {
               goHome();
             }}
           >
-            <span className="brand-mark" aria-hidden="true">
-              <ArrowDownToLine size={18} strokeWidth={2.75} aria-hidden="true" />
-            </span>
+            <img className="brand-mark" src="/drop6-mark.png" alt="" width={36} height={36} aria-hidden="true" />
             <span>
               DROP<span className="brand-six">6</span>
             </span>

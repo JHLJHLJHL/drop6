@@ -196,15 +196,11 @@ p {
 }
 
 .brand-mark {
-  display: inline-flex;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
+  width: 36px;
+  height: 36px;
+  margin-right: -4px; /* the plane has transparent padding around it, so pull the title in close */
 }
 
 .brand-six {
