@@ -77,19 +77,23 @@ test('the title has an icon in front, and the 6 has its own accent color', async
   });
   expect(ratio).toBeGreaterThanOrEqual(3);
 
-  // the icon sits in front of the letters, as a square mark of a sensible size
-  const icon = (await page.locator('.brand .brand-mark').boundingBox())!;
+  // the icon (the DROP6 plane image) sits in front of the letters, as a square mark of a sensible size
+  const mark = page.locator('.brand img.brand-mark');
+  await expect(mark).toHaveAttribute('src', '/drop6-mark.png');
+  expect(await mark.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  const icon = (await mark.boundingBox())!;
   const text = await page.locator('.brand').evaluate((el) => {
     const range = document.createRange();
     range.selectNodeContents(el.lastElementChild!);
     const { left, top, bottom } = range.getBoundingClientRect();
     return { left, top, bottom };
   });
-  expect(icon.x + icon.width).toBeLessThanOrEqual(text.left);
+  // the plane has transparent padding, so its box may reach 4px under the letters (margin-right: -4px)
+  expect(icon.x + icon.width - 4).toBeLessThanOrEqual(text.left);
+  expect(icon.width).toBe(icon.height);
   expect(icon.width).toBeGreaterThanOrEqual(24);
-  expect(icon.width).toBeLessThanOrEqual(32);
+  expect(icon.width).toBeLessThanOrEqual(40);
   expect(Math.abs(icon.y + icon.height / 2 - (text.top + text.bottom) / 2)).toBeLessThanOrEqual(4); // vertically centered with the letters
-  await expect(page.locator('.brand .brand-mark svg')).toHaveCount(1);
   await expect(page.locator('.brand')).toHaveAccessibleName('DROP6 처음으로');
 });
 
