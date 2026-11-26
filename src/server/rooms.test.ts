@@ -222,14 +222,6 @@ describe('a sender that dropped off', () => {
     expect(manager.roomCount).toBe(0);
   });
 
-  it('treats a disconnecting receiver like a leaving one', () => {
-    const { manager } = setupWithGrace();
-    const { sender, code } = openRoomWithSecret(manager);
-    const { receiver } = join(manager, code);
-    manager.disconnect(receiver);
-    expect(sender.last('peer-left').receiverCount).toBe(0);
-  });
-
   it('refuses new receivers while the sender is away', () => {
     const { manager } = setupWithGrace();
     const { sender, code } = openRoomWithSecret(manager);
@@ -294,6 +286,155 @@ describe('a sender that dropped off', () => {
     const { manager } = setupWithGrace();
     const { sender, code, secret } = openRoomWithSecret(manager);
     expect(manager.resumeRoom(sender, code, secret)).toBe('ALREADY_IN_ROOM');
+  });
+});
+
+describe('a receiver that dropped off', () => {
+  const GRACE = 60_000;
+
+  function setupWithGrace() {
+    const clock = { time: 1_000_000, now() { return this.time; } };
+    const manager = new RoomManager({ clock, receiverGraceMs: GRACE });
+    const sender = new FakePeer();
+    manager.createRoom(sender);
+    const created = sender.last('room-created');
+    return { clock, manager, sender, code: created.code, senderId: created.peerId, secret: created.secret };
+  }
+
+  function joinWithSecret(manager: RoomManager, code: string) {
+    const receiver = new FakePeer();
+    expect(manager.joinRoom(receiver, code)).toBeUndefined();
+    const joined = receiver.last('room-joined');
+    return { receiver, peerId: joined.peerId, secret: joined.secret };
+  }
+
+  it('hands every receiver its own secret, and nobody else sees it', () => {
+    const { manager, sender, code, secret: senderSecret } = setupWithGrace();
+    const a = joinWithSecret(manager, code);
+    const b = joinWithSecret(manager, code);
+    expect(a.secret).toMatch(/^[0-9a-f]{32}$/);
+    expect(a.secret).not.toBe(b.secret);
+    expect(a.secret).not.toBe(senderSecret);
+    expect(JSON.stringify(sender.messages)).not.toContain(a.secret);
+    expect(JSON.stringify(b.receiver.messages)).not.toContain(a.secret);
+  });
+
+  it('keeps the seat and tells the sender the receiver is away, not gone', () => {
+    const { manager, sender, code } = setupWithGrace();
+    const { receiver, peerId } = joinWithSecret(manager, code);
+    manager.disconnect(receiver);
+    expect(sender.last('peer-away').peerId).toBe(peerId);
+    expect(sender.messages.some((m) => m.type === 'peer-left')).toBe(false);
+  });
+
+  it('gives the seat up once the grace period is over', () => {
+    const { manager, clock, sender, code } = setupWithGrace();
+    const { receiver, peerId } = joinWithSecret(manager, code);
+    manager.disconnect(receiver);
+    clock.time += GRACE - 1;
+    manager.sweep();
+    expect(sender.messages.some((m) => m.type === 'peer-left')).toBe(false);
+    clock.time += 1;
+    manager.sweep();
+    expect(sender.last('peer-left')).toMatchObject({ peerId, receiverCount: 0 });
+  });
+
+  it('still lets the receiver go at once when it leaves on purpose', () => {
+    const { manager, sender, code } = setupWithGrace();
+    const { receiver, peerId } = joinWithSecret(manager, code);
+    manager.leave(receiver);
+    expect(sender.last('peer-left')).toMatchObject({ peerId, receiverCount: 0 });
+  });
+
+  it('holds the seat against new receivers until it is given up', () => {
+    const { manager, clock, code } = setupWithGrace();
+    const away = joinWithSecret(manager, code);
+    for (let i = 1; i < MAX_RECEIVERS; i += 1) joinWithSecret(manager, code);
+    manager.disconnect(away.receiver);
+    expect(join(manager, code).error).toBe('ROOM_FULL');
+    clock.time += GRACE; // nobody swept: the join itself notices the seat is free again
+    expect(join(manager, code).error).toBeUndefined();
+  });
+
+  it('lets the receiver take its seat back with its secret, and tells the sender', () => {
+    const { manager, sender, code, senderId } = setupWithGrace();
+    const { receiver, peerId, secret } = joinWithSecret(manager, code);
+    manager.disconnect(receiver);
+
+    const back = new FakePeer();
+    expect(manager.rejoinRoom(back, code, peerId, secret)).toBeUndefined();
+    expect(back.last('room-rejoined')).toMatchObject({ peerId, senderId });
+    expect(sender.last('peer-returned').peerId).toBe(peerId);
+
+    // signals flow both ways again under the same id
+    expect(manager.relaySignal(sender, peerId, offer)).toBeUndefined();
+    expect(back.last('signal')).toMatchObject({ from: senderId, data: offer });
+    expect(manager.relaySignal(back, senderId, offer)).toBeUndefined();
+    expect(sender.last('signal')).toMatchObject({ from: peerId });
+  });
+
+  it('takes the receiver back after the code expired: the expiry only stops new receivers', () => {
+    const { manager, clock, code } = setupWithGrace();
+    const { receiver, peerId, secret } = joinWithSecret(manager, code);
+    clock.time += ROOM_TTL_MS;
+    manager.disconnect(receiver);
+    expect(manager.rejoinRoom(new FakePeer(), code, peerId, secret)).toBeUndefined();
+  });
+
+  it('replaces a connection that still looks alive and closes it', () => {
+    const { manager, sender, code } = setupWithGrace();
+    const { receiver, peerId, secret } = joinWithSecret(manager, code);
+    const fresh = new FakePeer();
+    expect(manager.rejoinRoom(fresh, code, peerId, secret)).toBeUndefined();
+    expect(receiver.closed).toBe(true);
+    expect(sender.last('peer-returned').peerId).toBe(peerId);
+    manager.disconnect(receiver); // the old connection finally reports its death: the seat stays taken
+    expect(sender.messages.some((m) => m.type === 'peer-away')).toBe(false);
+    expect(manager.relaySignal(sender, peerId, offer)).toBeUndefined();
+    expect(fresh.last('signal')).toMatchObject({ data: offer });
+  });
+
+  it('only hands the seat to someone with the right secret and id', () => {
+    const { manager, code } = setupWithGrace();
+    const a = joinWithSecret(manager, code);
+    const b = joinWithSecret(manager, code);
+    manager.disconnect(a.receiver);
+    const intruder = new FakePeer();
+    expect(manager.rejoinRoom(intruder, code, a.peerId, 'f'.repeat(32))).toBe('NOT_ALLOWED');
+    expect(manager.rejoinRoom(intruder, code, a.peerId, b.secret)).toBe('NOT_ALLOWED');
+    expect(manager.rejoinRoom(intruder, code, 'a'.repeat(16), a.secret)).toBe('NOT_ALLOWED');
+    expect(manager.rejoinRoom(intruder, '000000', a.peerId, a.secret)).toBe('ROOM_NOT_FOUND');
+    expect(intruder.messages).toHaveLength(0);
+  });
+
+  it('refuses a receiver whose seat was already given up', () => {
+    const { manager, clock, code } = setupWithGrace();
+    const { receiver, peerId, secret } = joinWithSecret(manager, code);
+    manager.disconnect(receiver);
+    clock.time += GRACE;
+    expect(manager.rejoinRoom(new FakePeer(), code, peerId, secret)).toBe('NOT_ALLOWED');
+  });
+
+  it('refuses a connection that is already in a room', () => {
+    const { manager, code } = setupWithGrace();
+    const { receiver, peerId, secret } = joinWithSecret(manager, code);
+    expect(manager.rejoinRoom(receiver, code, peerId, secret)).toBe('ALREADY_IN_ROOM');
+  });
+
+  it('lets a receiver back in while the sender is away, and tells a returning sender who is still away', () => {
+    const { manager, sender, code, secret: senderSecret } = setupWithGrace();
+    const a = joinWithSecret(manager, code);
+    const b = joinWithSecret(manager, code);
+    manager.disconnect(a.receiver);
+    manager.disconnect(b.receiver);
+    manager.disconnect(sender);
+
+    expect(manager.rejoinRoom(new FakePeer(), code, a.peerId, a.secret)).toBeUndefined();
+    const back = new FakePeer();
+    expect(manager.resumeRoom(back, code, senderSecret)).toBeUndefined();
+    const resumed = back.last('room-resumed');
+    expect(resumed.receiverIds.sort()).toEqual([a.peerId, b.peerId].sort());
+    expect(resumed.awayIds).toEqual([b.peerId]);
   });
 });
 

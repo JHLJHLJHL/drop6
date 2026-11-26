@@ -50,6 +50,9 @@ export function isPeerActive(peer: SenderPeerView): boolean {
   return !FINISHED.includes(peer.phase);
 }
 
+/** A link that failed for one of these reasons is connected again when its receiver comes back to the room. */
+const RETRYABLE_FAILURES: readonly (string | undefined)[] = ['connect-timeout', 'ice-failed', 'connection-lost'];
+
 /** Connecting to one receiver again after a drop: how often in a row that may fail to get any further, and how soon the first try is made. */
 const MAX_RELINKS = 5;
 const RELINK_DELAY_MS = 1_000;
@@ -119,9 +122,25 @@ class PeerLink {
     return FINISHED.includes(this.view.phase);
   }
 
+  /** Worth connecting again when the receiver comes back: still running, or failed only because the connection did. */
+  get canResume(): boolean {
+    return !this.settled || (this.view.phase === 'failed' && RETRYABLE_FAILURES.includes(this.view.reason));
+  }
+
   /** Replaced by a newer link: let go of the connection without reporting anything. */
   retire(): void {
     this.retired = true;
+    this.dispose();
+  }
+
+  /**
+   * The receiver's own connection dropped (its phone fell asleep): keep what it acked and wait for it
+   * to come back, instead of trying to reach it meanwhile.
+   */
+  pause(): void {
+    if (this.settled || this.view.phase === 'paused') return;
+    this.retired = true; // whatever the dropped connection still reports no longer counts
+    this.set({ phase: 'paused', speed: 0 });
     this.dispose();
   }
 
@@ -218,6 +237,8 @@ export class SenderSession extends Store<SenderState> {
   private signaling: SignalingClient | undefined;
   private iceServers: IceServerConfig[] = [];
   private readonly links = new Map<string, PeerLink>();
+  /** Receivers whose own server connection dropped; the server keeps their seat and says when they are back. */
+  private readonly away = new Set<string>();
   /** Receivers are shown under fish scientific names instead of numbers. */
   private readonly nextName = createNamePicker();
   private disposed = false;
@@ -306,7 +327,7 @@ export class SenderSession extends Store<SenderState> {
           maxReceivers: message.maxReceivers,
           connectedCount: message.receiverIds.length,
         });
-        this.reconnectReceivers(message.receiverIds);
+        this.reconnectReceivers(message.receiverIds, message.awayIds);
         this.resumeOutcome?.('resumed');
         break;
       case 'peer-joined':
@@ -314,8 +335,16 @@ export class SenderSession extends Store<SenderState> {
         this.update({ connectedCount: message.receiverCount });
         break;
       case 'peer-left':
+        this.away.delete(message.peerId);
         this.links.get(message.peerId)?.peerLeft();
         this.update({ connectedCount: message.receiverCount });
+        break;
+      case 'peer-away':
+        this.away.add(message.peerId);
+        this.links.get(message.peerId)?.pause();
+        break;
+      case 'peer-returned':
+        this.peerReturned(message.peerId);
         break;
       case 'signal':
         void this.links.get(message.from)?.handleSignal(message.data);
@@ -331,6 +360,7 @@ export class SenderSession extends Store<SenderState> {
         else if (this.getState().phase === 'starting') this.update({ phase: 'error', reason: message.code });
         break;
       case 'room-joined':
+      case 'room-rejoined':
         break;
     }
   }
@@ -353,40 +383,64 @@ export class SenderSession extends Store<SenderState> {
     void link.begin();
   }
 
-  /** Connects to a receiver again after the old connection dropped; it continues from what it already saved. */
-  private relink(old: PeerLink): void {
-    if (old.recoveries >= MAX_RELINKS) {
+  /**
+   * Connects to a receiver again after the old connection dropped; it continues from what it already saved.
+   * `fresh`: the receiver itself came back, so earlier failed attempts no longer count against it.
+   */
+  private relink(old: PeerLink, fresh = false): void {
+    if (!fresh && old.recoveries >= MAX_RELINKS) {
       old.giveUp();
       return;
     }
     const { id, label, ackedBytes } = old.current;
     old.retire();
-    const link = new PeerLink(id, label, this.linkDeps(), { ackedBytes, recoveries: old.recoveries + 1 });
+    const link = new PeerLink(id, label, this.linkDeps(), { ackedBytes, recoveries: fresh ? 0 : old.recoveries + 1 });
     this.links.set(id, link);
     this.updatePeer(link.current);
     void link.begin();
   }
 
-  /** One connection broke while the server connection is fine: try that receiver again shortly. */
+  /** One connection broke while the server connection is fine: try that receiver again shortly (unless it is away itself). */
   private linkLost(id: string): void {
-    if (this.disposed || this.reconnecting) return; // after a reconnect, every receiver is connected again anyway
+    if (this.disposed || this.reconnecting || this.away.has(id)) return; // after a reconnect, every receiver is connected again anyway
     setTimeout(() => {
       const link = this.links.get(id);
-      if (this.disposed || this.reconnecting || link?.current.phase !== 'paused') return;
+      if (this.disposed || this.reconnecting || this.away.has(id) || link?.current.phase !== 'paused') return;
       this.relink(link);
     }, RELINK_DELAY_MS);
   }
 
-  /** The room is ours again: whoever was still connected needs a fresh connection, anyone else left meanwhile. */
-  private reconnectReceivers(receiverIds: readonly string[]): void {
+  /** A receiver whose connection dropped took its seat back: connect to it again, it continues from what it saved. */
+  private peerReturned(id: string): void {
+    this.away.delete(id);
+    const link = this.links.get(id);
+    if (!link) this.addPeer(id);
+    else if (link.canResume) this.relink(link, true);
+  }
+
+  /**
+   * The room is ours again: whoever was still connected needs a fresh connection, anyone else left meanwhile.
+   * Receivers that are away themselves are waited for; they get a connection when they come back.
+   */
+  private reconnectReceivers(receiverIds: readonly string[], awayIds: readonly string[]): void {
     const present = new Set(receiverIds);
+    const away = new Set(awayIds);
     for (const [id, link] of this.links) {
-      if (!present.has(id)) link.peerLeft();
+      if (!present.has(id)) {
+        this.away.delete(id);
+        link.peerLeft();
+      }
     }
     for (const id of receiverIds) {
       const link = this.links.get(id);
+      if (away.has(id)) {
+        this.away.add(id);
+        link?.pause();
+        continue;
+      }
+      this.away.delete(id);
       if (!link) this.addPeer(id);
-      else if (!link.settled) this.relink(link);
+      else if (link.canResume) this.relink(link);
     }
   }
 
@@ -448,6 +502,7 @@ export class SenderSession extends Store<SenderState> {
   private closeAll(reason: string): void {
     for (const link of this.links.values()) link.peerLeft();
     this.links.clear();
+    this.away.clear();
     this.update({ phase: 'closed', reason, connectedCount: 0, reconnecting: false });
   }
 }

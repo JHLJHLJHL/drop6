@@ -138,7 +138,7 @@ export function ReceiverView({ state, onAccept, onCancel, onRetry }: ReceiverVie
       return (
         <section className="card stack">
           {paused ? (
-            <TitleBlock title="연결이 끊겼어요" sub="보내는 사람이 돌아오면 이어서 받아요" />
+            <TitleBlock title="연결이 끊겼어요" sub="다시 연결되면 이어서 받아요" />
           ) : (
             <TitleBlock title="파일을 받는 중이에요" />
           )}

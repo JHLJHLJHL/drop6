@@ -178,10 +178,104 @@ test('a receiver waiting for a sender that never comes back is told once the gra
 
   await fallAsleep(page, true);
   await expect(receiverPage.getByRole('heading', { name: '연결이 끊겼어요' })).toBeVisible();
-  await expect(receiverPage.getByText('보내는 사람이 돌아오면 이어서 받아요')).toBeVisible();
+  await expect(receiverPage.getByText('다시 연결되면 이어서 받아요')).toBeVisible();
   await expect(page.getByText('연결이 끊겨서 다시 연결하는 중이에요').first()).toBeVisible();
 
   await advanceServerClock(receiverPage.request, 4 * MINUTE);
   await expect(receiverPage.getByRole('heading', { name: '보내는 사람이 창을 닫았어요' })).toBeVisible();
+  await context.close();
+});
+
+/** SHA-256 of a file the (fake) save dialog wrote into the page's OPFS root. */
+async function savedOpfsHash(page: Page, name: string): Promise<string> {
+  return page.evaluate(async (fileName) => {
+    const root = await navigator.storage.getDirectory();
+    const handle = await root.getFileHandle(fileName);
+    const digest = await crypto.subtle.digest('SHA-256', await (await handle.getFile()).arrayBuffer());
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  }, name);
+}
+
+/** Lets a page that was cut off with `fallAsleep(page, true)` reach the server again. */
+async function wakeUp(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as TrackedWindow).__blockSockets = false;
+  });
+}
+
+/** Joins with the (slow) fake save dialog and receives until `percent` is reached. */
+async function receiveUntil(receiverPage: Page, code: string, percent: number): Promise<void> {
+  await joinAndReview(receiverPage, code);
+  await chooseSaveLocation(receiverPage);
+  await receiverPage.getByRole('button', { name: '파일 받기' }).click();
+  await expect.poll(() => progressOf(receiverPage), { timeout: 60_000 }).toBeGreaterThanOrEqual(percent);
+}
+
+test('a receiver whose phone fell asleep takes its seat back and continues where it stopped, with the exact bytes', async ({ browser, page }) => {
+  test.setTimeout(120_000);
+  const file = makeTestFile(24 * 1024 * 1024, 'big.bin');
+  const code = await startSending(page, file);
+
+  const context = await newReceiverContext(browser, 'opfs', 15);
+  const receiverPage = await context.newPage();
+  await trackConnections(receiverPage);
+  await logControlMessages(receiverPage);
+  await receiveUntil(receiverPage, code, 30);
+
+  await fallAsleep(receiverPage);
+
+  await expect(receiverPage.getByRole('heading', { name: '다 받았어요' })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText('받기를 마쳤어요')).toBeVisible();
+  // the same receiver came back (no second fish on the sender screen), and asked to continue after what it had
+  await expect(page.locator('.peer')).toHaveCount(1);
+  const accepts = await receiverPage.evaluate(() =>
+    (window as unknown as { __controlSent: Array<Record<string, unknown>> }).__controlSent.filter((m) => m.t === 'accept'),
+  );
+  expect(accepts).toHaveLength(2);
+  expect(accepts[1]!.from).toBeGreaterThan(file.buffer.length * 0.2);
+  expect(await savedOpfsHash(receiverPage, 'big.bin')).toBe(file.hash);
+  await context.close();
+});
+
+test('a receiver that stays offline for a while keeps trying, and continues once it is back online', async ({ browser, page }) => {
+  test.setTimeout(120_000);
+  const file = makeTestFile(24 * 1024 * 1024, 'big.bin');
+  const code = await startSending(page, file);
+
+  const context = await newReceiverContext(browser, 'opfs', 15);
+  const receiverPage = await context.newPage();
+  await trackConnections(receiverPage);
+  await receiveUntil(receiverPage, code, 30);
+
+  await fallAsleep(receiverPage, true);
+  // the sender waits for that receiver instead of giving up on it
+  await expect(page.getByText('연결이 끊겨서 다시 연결하는 중이에요')).toBeVisible();
+  await expect(receiverPage.getByRole('heading', { name: '연결이 끊겼어요' })).toBeVisible();
+  await receiverPage.waitForTimeout(5_000);
+  await expect(page.getByText('연결이 끊겨서 다시 연결하는 중이에요')).toBeVisible();
+
+  await wakeUp(receiverPage);
+  await expect(receiverPage.getByRole('heading', { name: '다 받았어요' })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText('받기를 마쳤어요')).toBeVisible();
+  expect(await savedOpfsHash(receiverPage, 'big.bin')).toBe(file.hash);
+  await context.close();
+});
+
+test('a receiver that was away longer than its seat is kept is told it cannot continue', async ({ browser, page }) => {
+  test.setTimeout(90_000);
+  const code = await startSending(page, makeTestFile(24 * 1024 * 1024, 'big.bin'));
+
+  const context = await newReceiverContext(browser, 'opfs', 15);
+  const receiverPage = await context.newPage();
+  await trackConnections(receiverPage);
+  await receiveUntil(receiverPage, code, 10);
+
+  await fallAsleep(receiverPage, true);
+  await expect(page.getByText('연결이 끊겨서 다시 연결하는 중이에요')).toBeVisible();
+  await advanceServerClock(receiverPage.request, 11 * MINUTE);
+  await wakeUp(receiverPage);
+
+  await expect(receiverPage.getByRole('heading', { name: '이어서 받을 수 없어요' })).toBeVisible();
+  await expect(page.getByText('연결이 끊겨서 다시 연결하는 중이에요')).toHaveCount(0);
   await context.close();
 });

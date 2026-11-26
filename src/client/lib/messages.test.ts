@@ -67,6 +67,12 @@ describe('describeReceiverFailure', () => {
     expect(describeReceiverFailure('ice-failed', true).body).not.toContain('TURN');
   });
 
+  it('says a dropped receiver could not take its transfer back, and what to do', () => {
+    const message = describeReceiverFailure('rejoin-refused', true);
+    expect(message.title).toBe('이어서 받을 수 없어요');
+    expect(message.body).toContain('다시 보내달라고');
+  });
+
   it('covers storage and server restart failures', () => {
     expect(describeReceiverFailure('storage', true).title).toContain('저장');
     expect(describeReceiverFailure('SERVER_SHUTDOWN', true).title).toContain('다시 시작');

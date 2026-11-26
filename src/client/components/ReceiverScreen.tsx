@@ -20,6 +20,25 @@ interface ReceiverScreenProps {
 function Connected({ session, onRetry }: { session: ReceiverSession; onRetry(): void }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   useWakeLock(keepsReceiverAwake(state.phase));
+
+  useEffect(() => {
+    // A phone that wakes up: notice now, not much later, if its server connection died while it slept.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') session.checkConnection();
+    };
+    // Closing the tab says goodbye right away. A phone that merely fell asleep says nothing: the server
+    // keeps the seat for a while and the transfer continues once it is back.
+    const leave = (event: PageTransitionEvent) => {
+      if (!event.persisted) session.dispose();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', leave);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', leave);
+    };
+  }, [session]);
+
   return (
     <ReceiverView
       state={state}

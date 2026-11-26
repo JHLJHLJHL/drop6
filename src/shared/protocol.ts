@@ -4,6 +4,8 @@ export const MAX_RECEIVERS = 3;
 export const ROOM_TTL_MS = 30 * 60 * 1000;
 /** How long a room waits for its sender to come back after the sender's connection dropped (phone asleep, network change). */
 export const SENDER_GRACE_MS = 3 * 60 * 1000;
+/** How long a receiver's seat is kept after its connection dropped (phone asleep, screen locked), so it can continue its transfer. */
+export const RECEIVER_GRACE_MS = 10 * 60 * 1000;
 export const MAX_MESSAGE_BYTES = 64 * 1024;
 export const CODE_PATTERN = /^\d{6}$/;
 export const JOIN_RATE_LIMIT = { max: 20, windowMs: 60_000 } as const;
@@ -42,7 +44,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
 };
 
 const peerId = z.string().regex(/^[0-9a-f]{16}$/);
-/** Known only to the sender: proves it is the same sender when it reconnects to its room. */
+/** Known only to its owner (the sender, or one receiver): proves it is the same peer when it reconnects to its room. */
 const resumeSecret = z.string().regex(/^[0-9a-f]{32}$/);
 const byteCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
@@ -80,6 +82,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('join-room'), code: z.string().regex(CODE_PATTERN) }).strict(),
   /** The sender is back after its connection dropped: take over the room again. */
   z.object({ type: z.literal('resume-room'), code: z.string().regex(CODE_PATTERN), secret: resumeSecret }).strict(),
+  /** A receiver is back after its connection dropped: take its seat (and peer id) in the room again. */
+  z.object({ type: z.literal('rejoin-room'), code: z.string().regex(CODE_PATTERN), peerId, secret: resumeSecret }).strict(),
   z.object({ type: z.literal('signal'), to: peerId, data: signalDataSchema }).strict(),
   z
     .object({
@@ -118,11 +122,15 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     maxReceivers: z.number().int().positive(),
     /** The receivers still in the room; the sender connects to each of them again. */
     receiverIds: z.array(peerId),
+    /** Those of `receiverIds` whose own connection dropped: the sender waits for them to come back. */
+    awayIds: z.array(peerId),
   }),
   z.object({
     type: z.literal('room-joined'),
     peerId,
     senderId: peerId,
+    /** Sent to this receiver only; it needs it to take its seat back. */
+    secret: resumeSecret,
     expiresAt: byteCount,
     serverTime: byteCount,
     receiverCount: z.number().int().nonnegative(),
@@ -130,6 +138,12 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('peer-joined'), peerId, receiverCount: z.number().int().nonnegative() }),
   z.object({ type: z.literal('peer-left'), peerId, receiverCount: z.number().int().nonnegative() }),
+  /** To the receiver that took its seat back. */
+  z.object({ type: z.literal('room-rejoined'), peerId, senderId: peerId, expiresAt: byteCount, serverTime: byteCount }),
+  /** To the sender: a receiver's connection dropped; its seat is kept for RECEIVER_GRACE_MS. */
+  z.object({ type: z.literal('peer-away'), peerId }),
+  /** To the sender: that receiver is back and needs a new connection. */
+  z.object({ type: z.literal('peer-returned'), peerId }),
   z.object({ type: z.literal('signal'), from: peerId, data: signalDataSchema }),
   z.object({
     type: z.literal('transfer-progress'),

@@ -349,14 +349,51 @@ describe('WebSocket protocol', () => {
     expect(await second.next('peer-joined')).toMatchObject({ receiverCount: 1 });
   });
 
-  it('tells the sender when a receiver disconnects', async () => {
-    const { ws } = await start();
+  it('tells the sender when a receiver disconnects, and that it left once its seat is given up', async () => {
+    const { ws, http } = await start({ testMode: true, receiverGraceMs: 10_000 });
     const { sender, code } = await openRoom(ws);
     const receiver = await joinRoom(ws, code);
     const { peerId } = await receiver.next<{ peerId: string }>('room-joined');
     await sender.next('peer-joined');
     receiver.ws.terminate();
-    expect(await sender.next('peer-left')).toMatchObject({ peerId, receiverCount: 0 });
+    expect(await sender.next('peer-away')).toMatchObject({ peerId });
+
+    await fetch(`${http}/__test__/clock/advance`, { method: 'POST', body: JSON.stringify({ ms: 11_000 }) });
+    // the next sweep (or the next join) frees the seat
+    const late = await joinRoom(ws, code);
+    await late.next('room-joined');
+    expect(await sender.next('peer-left')).toMatchObject({ peerId });
+  });
+
+  it('lets a receiver take its seat back with its secret, and the sender reaches it under the same id', async () => {
+    const { ws } = await start();
+    const { sender, code, peerId: senderId } = await openRoom(ws);
+    const first = await joinRoom(ws, code);
+    const joined = await first.next<{ peerId: string; secret: string }>('room-joined');
+    await sender.next('peer-joined');
+    first.ws.terminate();
+    await sender.next('peer-away');
+
+    const back = await connect(ws);
+    back.send({ type: 'rejoin-room', code, peerId: joined.peerId, secret: joined.secret });
+    expect(await back.next('room-rejoined')).toMatchObject({ peerId: joined.peerId, senderId });
+    expect(await sender.next('peer-returned')).toMatchObject({ peerId: joined.peerId });
+
+    sender.send({ type: 'signal', to: joined.peerId, data: { kind: 'offer', sdp: 'v=0' } });
+    expect(await back.next('signal')).toMatchObject({ from: senderId });
+  });
+
+  it('refuses to hand a receiver seat to anyone without its secret', async () => {
+    const { ws } = await start();
+    const { code } = await openRoom(ws);
+    const receiver = await joinRoom(ws, code);
+    const { peerId } = await receiver.next<{ peerId: string }>('room-joined');
+    receiver.ws.terminate();
+    await receiver.closed;
+
+    const intruder = await connect(ws);
+    intruder.send({ type: 'rejoin-room', code, peerId, secret: '0'.repeat(32) });
+    expect(await intruder.next('error')).toMatchObject({ code: 'NOT_ALLOWED' });
   });
 });
 

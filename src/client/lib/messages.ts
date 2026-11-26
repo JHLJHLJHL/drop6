@@ -60,6 +60,11 @@ export function describeReceiverFailure(reason: string | undefined, hasTurn: boo
         title: '연결이 끊어졌어요',
         body: '보내는 사람이 창을 닫았거나 네트워크가 불안정할 수 있어요.\n다시 시도해주세요.',
       };
+    case 'rejoin-refused':
+      return {
+        title: '이어서 받을 수 없어요',
+        body: '연결이 너무 오래 끊겼거나 보내는 사람이 전송을 끝냈어요.\n보내는 사람에게 다시 보내달라고 부탁해주세요.',
+      };
     case 'connect-timeout':
     case 'ice-failed':
       return { title: '연결하지 못했어요', body: connectBody(hasTurn) };

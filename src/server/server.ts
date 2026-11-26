@@ -23,6 +23,8 @@ export interface AppServerOptions {
   generateCode?: () => string;
   /** How long a room waits for a sender whose connection dropped. Defaults to SENDER_GRACE_MS. */
   senderGraceMs?: number;
+  /** How long a receiver's seat is kept after its connection dropped. Defaults to RECEIVER_GRACE_MS. */
+  receiverGraceMs?: number;
   logger?: Logger;
 }
 
@@ -52,7 +54,12 @@ const FORCE_CLOSE_AFTER_MS = 2_000;
 export function createAppServer(options: AppServerOptions): AppServer {
   const logger = options.logger ?? consoleLogger;
   const clock = new OffsetClock();
-  const manager = new RoomManager({ clock, generateCode: options.generateCode, senderGraceMs: options.senderGraceMs });
+  const manager = new RoomManager({
+    clock,
+    generateCode: options.generateCode,
+    senderGraceMs: options.senderGraceMs,
+    receiverGraceMs: options.receiverGraceMs,
+  });
   const joinLimiter = new SlidingWindowLimiter({ ...(options.joinRateLimit ?? JOIN_RATE_LIMIT), clock });
 
   const testControls = options.testMode

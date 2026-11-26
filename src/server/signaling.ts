@@ -119,6 +119,10 @@ export function attachSignaling(server: Server, options: SignalingOptions): Sign
         case 'resume-room':
           error = manager.resumeRoom(handle, message.code, message.secret);
           break;
+        // Not rate limited, like resume-room: it needs a 128-bit secret, and a receiver on a shared IP must get back in.
+        case 'rejoin-room':
+          error = manager.rejoinRoom(handle, message.code, message.peerId, message.secret);
+          break;
         case 'signal':
           error = manager.relaySignal(handle, message.to, message.data);
           break;
@@ -132,7 +136,7 @@ export function attachSignaling(server: Server, options: SignalingOptions): Sign
       if (error) fail(error);
     }
 
-    // A sender that just vanished (asleep phone, lost network) gets time to come back; an explicit "leave" does not.
+    // A peer that just vanished (asleep phone, lost network) gets time to come back; an explicit "leave" does not.
     ws.on('close', () => manager.disconnect(handle));
     ws.on('error', () => ws.terminate());
   });

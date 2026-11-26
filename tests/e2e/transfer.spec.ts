@@ -185,7 +185,9 @@ test('one receiver leaving mid-transfer does not interrupt the others', async ({
     .toBeGreaterThan(0);
 
   const downloads = Promise.all([acceptAndDownload(pageA!), acceptAndDownload(pageC!)]);
-  await b.close(); // receiver B drops mid-transfer
+  // receiver B closes its tab mid-transfer (with the page lifecycle a real tab close has, so it says goodbye)
+  await pageB!.close({ runBeforeUnload: true });
+  await b.close();
 
   const hashes = await Promise.all((await downloads).map(downloadedHash));
   expect(hashes).toEqual([file.hash, file.hash]);

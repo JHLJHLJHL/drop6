@@ -420,7 +420,7 @@ describe('ReceiverView', () => {
     const state = receiverState({ phase: 'paused', meta, savedBytes: 1.5 * 1024 * 1024 });
     render(<ReceiverView state={state} onAccept={noop} onCancel={onCancel} onRetry={noop} />);
     expect(screen.getByRole('heading')).toHaveTextContent('연결이 끊겼어요');
-    expect(screen.getByText('보내는 사람이 돌아오면 이어서 받아요')).toBeInTheDocument();
+    expect(screen.getByText('다시 연결되면 이어서 받아요')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
     expect(screen.getByText(/50% · 1\.5 MB \/ 3 MB/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '받기 취소' }));
