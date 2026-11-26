@@ -28,6 +28,8 @@ const MEMORY_FILES_NOTICE = '파일 따로 받기는 파일마다 다운로드�
 const FOLDER_NOTICE = '파일 따로 받기는 파일을 담을 폴더를 골라요. 다운로드 폴더 자체는 고를 수 없는 브라우저가 있어서, 그 안에 새 폴더를 만들어 고르면 돼요.';
 /** The browser's own download keeps the file in memory; bigger ones go through the save dialog. */
 const BIG_FILE_NOTICE = `${MEMORY_LIMIT}를 넘는 파일은 저장 위치를 직접 골라야 해요.`;
+/** The screen is kept on where the browser allows it; a phone locked by hand still stops the transfer. */
+const KEEP_AWAKE_NOTICE = '받는 동안 화면을 켜 두세요. 화면이 꺼지면 받기가 멈춰요';
 
 export function ReceiverView({ state, onAccept, onCancel, onRetry }: ReceiverViewProps) {
   const [chooseLocation, setChooseLocation] = useState(false);
@@ -148,6 +150,7 @@ export function ReceiverView({ state, onAccept, onCancel, onRetry }: ReceiverVie
               <span>{paused ? '' : formatSpeed(state.speed)}</span>
             </div>
           </div>
+          <p className="note">{KEEP_AWAKE_NOTICE}</p>
           <Button variant="secondary" onClick={onCancel}>
             받기 취소
           </Button>

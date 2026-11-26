@@ -408,6 +408,13 @@ describe('ReceiverView', () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
+  it.each(['receiving', 'paused'] as const)('asks to keep the screen on while %s', (phase) => {
+    const state = receiverState({ phase, meta, savedBytes: 1024 });
+    const { container } = render(<ReceiverView state={state} onAccept={noop} onCancel={noop} onRetry={noop} />);
+    const notes = [...container.querySelectorAll('.note:not(.privacy-note)')].map((note) => note.textContent);
+    expect(notes).toEqual(['받는 동안 화면을 켜 두세요. 화면이 꺼지면 받기가 멈춰요']);
+  });
+
   it('waits for the sender when the connection dropped, with the progress so far and a way out', async () => {
     const onCancel = vi.fn();
     const state = receiverState({ phase: 'paused', meta, savedBytes: 1.5 * 1024 * 1024 });

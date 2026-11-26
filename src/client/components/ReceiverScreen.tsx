@@ -1,6 +1,15 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { ReceiverSession } from '../lib/receiverSession';
+import { ReceiverSession, type ReceiverPhase } from '../lib/receiverSession';
 import { ReceiverView } from './ReceiverView';
+import { useWakeLock } from './useWakeLock';
+
+/**
+ * A phone whose screen locks freezes the page (iOS Safari above all), which drops the connection and
+ * stops the transfer. Keep the screen on for as long as the connection to the sender matters.
+ */
+export function keepsReceiverAwake(phase: ReceiverPhase): boolean {
+  return phase === 'joining' || phase === 'connecting' || phase === 'review' || phase === 'receiving' || phase === 'paused';
+}
 
 interface ReceiverScreenProps {
   code: string;
@@ -10,6 +19,7 @@ interface ReceiverScreenProps {
 
 function Connected({ session, onRetry }: { session: ReceiverSession; onRetry(): void }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
+  useWakeLock(keepsReceiverAwake(state.phase));
   return (
     <ReceiverView
       state={state}
