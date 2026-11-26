@@ -1,0 +1,70 @@
+name: Deploy to Oracle VM
+
+# Once CI passed for a push to main, tells the Oracle VM over SSH to deploy exactly that commit.
+# On the VM, scripts/deploy-oracle.sh runs as the forced command of a deploy-only key: it fast-forwards
+# the checkout to the commit and rebuilds the containers. Open rooms are dropped by the restart.
+#
+# Switched on by the repository variable ORACLE_HOST (the domain in the VM's .env, e.g.
+# drop6.duckdns.org). Without it this workflow does nothing. One-time setup: README "Oracle VM 자동 배포".
+#   Variables: ORACLE_HOST, ORACLE_USER (optional, default ubuntu)
+#   Secrets:   ORACLE_SSH_KEY (the deploy key's private key), ORACLE_HOST_KEY (the VM's SSH host key)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Deploys the newest commit of the chosen branch by hand; the VM only takes commits that are on main.
+  workflow_dispatch:
+
+permissions: {}
+
+# One deploy at a time; a newer one waits instead of cutting a build short.
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: >-
+      vars.ORACLE_HOST != '' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      )
+    env:
+      HOST: ${{ vars.ORACLE_HOST }}
+    steps:
+      - name: Deploy over SSH
+        env:
+          USER_NAME: ${{ vars.ORACLE_USER || 'ubuntu' }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          HOST_KEY: ${{ secrets.ORACLE_HOST_KEY }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$HOST_KEY" ]; then
+            echo "::error::Set the repository secrets ORACLE_SSH_KEY and ORACLE_HOST_KEY (README: Oracle VM 자동 배포)."
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Only the VM's own host key is trusted: no trust-on-first-use from a fresh runner.
+          printf '%s %s\n' "$HOST" "$HOST_KEY" > ~/.ssh/known_hosts
+          echo "Deploying $SHA to $HOST"
+          ssh -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            -o ConnectTimeout=20 -o ServerAliveInterval=30 \
+            "$USER_NAME@$HOST" "$SHA"
+
+      - name: Check /health
+        run: |
+          curl --fail --silent --show-error \
+            --max-time 20 --retry 6 --retry-delay 5 --retry-all-errors \
+            "https://${HOST}/health"
+
+      - name: Forget the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

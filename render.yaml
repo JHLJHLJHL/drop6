@@ -13,7 +13,9 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     numInstances: 1
-    autoDeployTrigger: commit
+    # Pushes to main no longer redeploy this service: the Oracle VM is deployed by GitHub Actions instead.
+    # Deploy Render by hand from the dashboard (Manual Deploy) when needed.
+    autoDeployTrigger: "off"
     envVars:
       # TURN/STUN servers as JSON (see README). Entered in the dashboard; never commit it.
       - key: ICE_SERVERS_JSON

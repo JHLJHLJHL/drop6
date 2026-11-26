@@ -130,7 +130,9 @@ push하면 `.github/workflows/ci.yml`이 자동으로 실행돼요
 
 1. Render 대시보드에서 **New > Blueprint**를 고르고 이 GitHub 저장소를 연결해요.
 2. `render.yaml`을 읽어 Docker 기반 Web Service `drop6`이 만들어져요.
-   (health check `/health`, 인스턴스 1개, 커밋마다 자동 배포)
+   (health check `/health`, 인스턴스 1개, 자동 배포 꺼짐)
+   push해도 Render는 다시 배포하지 않아요(`autoDeployTrigger: "off"`). 필요할 때 대시보드의 **Manual Deploy**로 배포해요.
+   Blueprint로 만들지 않은 서비스라면 대시보드의 **Settings > Auto-Deploy**를 직접 **Off**로 바꿔야 해요.
 3. 환경변수 `ICE_SERVERS_JSON`을 입력하라고 물어보면 아래 [ICE_SERVERS_JSON 설정](#ice_servers_json-설정) 값을 넣어요.
    TURN 없이 먼저 확인하려면 비워두어도 돼요. 기본 공개 STUN 서버만 사용해요.
 4. 배포가 끝나면 `https://<서비스 이름>.onrender.com`으로 접속해요. HTTPS/WSS는 Render가 처리해요.
@@ -214,10 +216,49 @@ docker compose logs -f app                 # 앱 로그
 docker compose logs -f caddy               # 인증서/프록시 로그
 ```
 
+아래 [자동 배포](#oracle-vm-자동-배포)를 켜 두면 새 코드 반영은 직접 하지 않아도 돼요.
+
 - 앱 컨테이너는 **1개만** 실행해요. `--scale`로 늘리지 마세요.
 - Oracle은 한동안 사용량이 매우 낮은 Always Free 인스턴스를 회수(중지)할 수 있다고 안내해요. 이 앱은 한가해서 해당될 수 있어요.
   계정을 Pay As You Go로 올리고 Always Free 한도 안에서만 쓰면 요금 없이 이 대상에서 빠진다고 알려져 있지만, 현재 정책은 Oracle 문서에서 직접 확인하세요.
 - Oracle로 옮기면 `.github/workflows/keep-awake.yml`은 필요 없어요. `RENDER_URL` 변수를 비워두면 아무것도 하지 않아요.
+
+### Oracle VM 자동 배포
+
+`main`에 push하고 CI가 통과하면 `.github/workflows/deploy-oracle.yml`이 SSH로 VM에 그 커밋을 배포하라고 알려요.
+VM에서는 `scripts/deploy-oracle.sh`가 체크아웃을 그 커밋으로 fast-forward하고 `docker compose up -d --build`로 다시 띄운 뒤,
+앱이 healthy가 될 때까지 기다려요. 다시 띄우는 순간 열려 있던 방은 사라져요.
+
+배포용 SSH 키는 이 스크립트만 실행할 수 있게 묶어 둬요(`authorized_keys`의 `command=`와 `restrict`). 그 키로는 셸을 열 수 없고,
+`main`에 있는 커밋만 배포할 수 있어요. VM 체크아웃을 직접 고쳐 둔 파일이 있으면 덮어쓰지 않고 배포를 멈춰요.
+
+**한 번만 하는 설정**
+
+1. VM에 SSH로 접속해서 배포 스크립트를 받고, 배포 전용 키를 만들어 등록해요.
+
+   ```bash
+   cd ~/drop6 && git pull
+   ssh-keygen -t ed25519 -N "" -C drop6-deploy -f ~/drop6-deploy
+   echo "restrict,command=\"/bin/bash $HOME/drop6/scripts/deploy-oracle.sh\" $(cat ~/drop6-deploy.pub)" >> ~/.ssh/authorized_keys
+   cat ~/drop6-deploy                      # 2번의 ORACLE_SSH_KEY 값 (BEGIN 줄부터 END 줄까지 전부)
+   cat /etc/ssh/ssh_host_ed25519_key.pub   # 2번의 ORACLE_HOST_KEY 값
+   ```
+
+2. GitHub 저장소의 **Settings > Secrets and variables > Actions**에 값을 넣어요.
+   - **Secrets**: `ORACLE_SSH_KEY`(위 개인 키 전체), `ORACLE_HOST_KEY`(위 호스트 키 한 줄)
+   - **Variables**: `ORACLE_HOST`(`.env`의 `DOMAIN`과 같은 도메인, 예: `drop6.duckdns.org`), `ORACLE_USER`(VM 사용자, 비워두면 `ubuntu`)
+3. 개인 키를 GitHub에 넣었으면 VM에 남은 키 파일은 지워요. 공개 키는 `authorized_keys`에 들어가 있어서 계속 동작해요.
+
+   ```bash
+   rm ~/drop6-deploy ~/drop6-deploy.pub
+   ```
+
+4. **Actions** 탭에서 `Deploy to Oracle VM`을 직접 실행(**Run workflow**)해서 확인해요. 마지막 단계에서 `https://<도메인>/health`까지 확인해요.
+
+- `ORACLE_HOST`를 비워두면 이 워크플로는 아무것도 하지 않아요.
+- CI가 실패한 커밋은 배포하지 않아요. Pull request의 CI도 배포하지 않아요.
+- 22번 포트(SSH)가 열려 있어야 해요. Oracle의 기본 Security List는 22번을 열어 둬요.
+- 키가 새어 나갔다고 생각되면 VM의 `~/.ssh/authorized_keys`에서 `drop6-deploy` 줄을 지우고 1~3번을 다시 해요.
 
 ## ICE_SERVERS_JSON 설정
 
